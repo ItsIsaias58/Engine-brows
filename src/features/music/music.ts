@@ -207,11 +207,37 @@ export function nextTrack(auto = false): void {
   if (auto && now - lastAdvanceAt < 1500) return; // dedup de eventos repetidos
   lastAdvanceAt = now;
   if (queue.length === 0) return;
-  if (queueIndex + 1 >= queue.length) {
-    void extendQueue(); // se acabo la cola: trae los recomendados reales
+  if (queueIndex + 1 >= queue.length && auto) {
+    // fin de la cola en avance AUTOMATICO (el video se acabo solo): espera a
+    // los recomendados reales y entra en ellos. antes se hacia `% queue.length`
+    // de inmediato y volvia al primer resultado de la busqueda, asi que los
+    // recomendados que llegaban tarde quedaban detras de una busqueda entera
+    // repetida (el "bloque repetido" que extendQueue debia reemplazar).
+    void advancePastEnd();
+    return;
   }
+  // avance manual (botones) o hueco en medio de la cola: el salto de siempre,
+  // sincrono. pulsar "siguiente" en la ultima da la vuelta al principio.
   queueIndex = (queueIndex + 1) % queue.length;
   loadQueueCurrent();
+}
+
+// fin de la cola: espera a los recomendados y salta al primero nuevo. si no
+// hay red (o no hay recomendados nuevos) vuelve al principio en bucle, que es
+// el fallback de siempre. el flag evita que dos avances en el mismo hueco
+// (auto + click) disparen el salto por duplicado.
+let advancing = false;
+async function advancePastEnd(): Promise<void> {
+  if (advancing) return;
+  advancing = true;
+  try {
+    const before = queue.length;
+    await extendQueue();
+    queueIndex = queue.length > before ? before : 0;
+    loadQueueCurrent();
+  } finally {
+    advancing = false;
+  }
 }
 
 // pide a youtube los videos recomendados del actual y los agrega a la cola

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import {
   searchMusic,
   searchResultsSignal,
@@ -6,6 +6,9 @@ import {
   musicPageUrl,
   musicPicks,
   musicSourceSignal,
+  nextTrack,
+  playSearchResult,
+  queueSnapshot,
   spotifyEmbedUrl,
   toSpotifyLink,
   toYouTubeId,
@@ -279,5 +282,78 @@ describe("searchMusic", () => {
     await vieja;
     expect(searchResultsSignal.value.map((r) => r.id)).toEqual(["nueva1"]);
     expect(searchStateSignal.value).toBe("done");
+  });
+});
+
+describe("cola de musica", () => {
+  const realDocument = (globalThis as Record<string, unknown>).document;
+  const realWindow = (globalThis as Record<string, unknown>).window;
+  const realFetch = globalThis.fetch;
+
+  beforeAll(() => {
+    // stub minimo: bun test no trae DOM y nextTrack/playSearchResult tocan el
+    // iframe persistente. basta con el host (para que createPersistentFrame
+    // salga sin construir nada) y el frame (para el setAttribute del src).
+    (globalThis as Record<string, unknown>).window = {
+      location: { origin: "http://localhost" },
+    };
+    (globalThis as Record<string, unknown>).document = {
+      getElementById: (id: string) => {
+        if (id === "music-frame-host") return {};
+        if (id === "music-iframe") {
+          return { setAttribute: () => {}, getAttribute: () => null };
+        }
+        return null;
+      },
+    };
+  });
+
+  afterAll(() => {
+    (globalThis as Record<string, unknown>).document = realDocument;
+    (globalThis as Record<string, unknown>).window = realWindow;
+    globalThis.fetch = realFetch;
+  });
+
+  // al acabar la cancion deben sonar los RECOMENDADOS: antes el auto-avance
+  // hacia el modulo de inmediato y volvia al primer resultado, asi que la
+  // busqueda entera se repetia antes de llegar a lo que traia extendQueue
+  test("al acabar la cola (auto) suenan los recomendados, no se repite", async () => {
+    searchResultsSignal.value = [
+      { id: "aaaaaaaaaaa", title: "a", channel: "c", source: "youtube" },
+    ];
+    playSearchResult(0); // cola = [a], suena a
+
+    globalThis.fetch = (async () => ({
+      json: async () => ({
+        results: [
+          { id: "ccccccccccc", title: "rec", channel: "ch", source: "youtube" },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    nextTrack(true); // fin de cola: pide recomendados y salta al primero nuevo
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const snap = queueSnapshot();
+    expect(snap.items.map((item) => item.id)).toEqual(["aaaaaaaaaaa", "ccccccccccc"]);
+    expect(snap.index).toBe(1); // el primer recomendado, no un rewind al 0
+  });
+
+  // sin red (o sin recomendados nuevos) el fallback sigue siendo el bucle
+  test("sin recomendados nuevos, el auto-avance da la vuelta", async () => {
+    // el dedup de eventos repetidos ignora otro auto-avance dentro de 1500ms
+    await new Promise((resolve) => setTimeout(resolve, 1550));
+    searchResultsSignal.value = [
+      { id: "ddddddddddd", title: "d", channel: "c", source: "youtube" },
+    ];
+    playSearchResult(0);
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+
+    nextTrack(true); // fin de cola, fetch revienta
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(queueSnapshot().index).toBe(0);
   });
 });
