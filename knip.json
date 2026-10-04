@@ -1,0 +1,57 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/index.html",
+    "src/player.html",
+    "src/404.html",
+    "build.js",
+    "build-id.mjs",
+    "scripts/audit-build.mjs",
+    "scripts/backend-load.mjs",
+    "scripts/build-folio.mjs",
+    "scripts/build-rivet.mjs",
+    "scripts/patch-baremux-ws.mjs",
+    "scripts/patch-dependencies.mjs",
+    "scripts/patch-epoxy-reconnect.mjs",
+    "src/app/playerEntry.tsx",
+    "src/app/entry.tsx",
+    "packages/rivet/src/router/swEntry.ts",
+    "services/tls-approval/server.js",
+    "scripts/*.test.mjs",
+    "services/**/*.test.mjs"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx,js}",
+    "server/**/*.mjs",
+    "scripts/**/*.mjs",
+    "services/**/*.mjs",
+    "packages/**/*.{ts,tsx}",
+    "*.mjs",
+    "*.js"
+  ],
+  "ignore": [
+    "dist/**",
+    "node_modules/**",
+    "vendor/**",
+    "update/**",
+    "src/b/**",
+    "public/b/**",
+    "services/market/public/**",
+    "CS-GO-OpenCase-Simulator-master/**",
+    "services/cloudsync/target/**",
+    "services/*/target/**",
+    "scripts/wisp-handshake.mjs",
+    "scripts/test-wisp-connect.mjs",
+    "scripts/test-mochi-ws.mjs",
+    "scripts/decode-mochi-url.mjs",
+    "scripts/fetch-csgo-assets.mjs"
+  ],
+  "ignoreDependencies": [
+    "@mercuryworkshop/epoxy-transport",
+    "@mercuryworkshop/libcurl-transport",
+    "hls.js"
+  ],
+  "ignoreBinaries": [
+    "tsc-alias"
+  ]
+}

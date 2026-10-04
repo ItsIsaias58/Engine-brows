@@ -1,0 +1,21 @@
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    command:
+      - --no-cli
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=lyra-dev.local
+      - --user=${TURN_USERNAME:-lyly}:${TURN_CREDENTIAL:-rara}
+      - --listening-ip=0.0.0.0
+      - --listening-port=${TURN_PORT:-3478}
+      - --min-port=49152
+      - --max-port=49200
+      - --no-multicast-peers
+      - --no-tls
+      - --no-dtls
+      - --log-file=/tmp/turnserver.log
+      - --no-stdout-log
+      - --simple-log
+    network_mode: host
+    restart: unless-stopped

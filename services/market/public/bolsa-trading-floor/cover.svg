@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0f14"/>
+      <stop offset="1" stop-color="#12202c"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#29e0a8"/>
+      <stop offset="1" stop-color="#6be3ff"/>
+    </linearGradient>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#29e0a8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#29e0a8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <g stroke="#223040" stroke-width="1">
+    <path d="M0 90h800M0 180h800M0 270h800M0 360h800" opacity="0.6"/>
+  </g>
+  <path d="M40 330 L110 300 L170 315 L230 250 L290 268 L350 205 L410 225 L470 160 L530 176 L600 120 L680 145 L760 95"
+        fill="none" stroke="url(#line)" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M40 330 L110 300 L170 315 L230 250 L290 268 L350 205 L410 225 L470 160 L530 176 L600 120 L680 145 L760 95 L760 420 L40 420 Z"
+        fill="url(#fill)"/>
+  <g fill="#e8eef5" font-family="system-ui, sans-serif">
+    <text x="40" y="70" font-size="44" font-weight="700">Bolsa · Trading Floor</text>
+    <text x="40" y="106" font-size="20" fill="#8aa0b4">mercado en tiempo real · multijugador</text>
+  </g>
+  <g fill="#29e0a8" font-family="system-ui, sans-serif" font-size="18">
+    <text x="600" y="60" text-anchor="end">▲ mercado abierto</text>
+  </g>
+</svg>

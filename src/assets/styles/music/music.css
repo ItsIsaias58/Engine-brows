@@ -1,0 +1,749 @@
+/* music: catalog view in the games/anime style + a persistent spotify player
+   that survives leaving the menu (expanded panel or corner mini bar). */
+
+.music-page {
+  display: none;
+  flex-direction: column;
+  gap: 18px;
+  padding: clamp(28px, 4vw, 36px) clamp(14px, 4vw, 44px) 60px;
+  box-sizing: border-box;
+  width: min(100%, calc(100vw - 32px));
+  max-width: 1280px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.music-page.is-visible {
+  display: flex;
+}
+
+body.music-view {
+  background-color: var(--bg-body);
+}
+
+body.music-view .meow {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+body.music-view .main-container,
+body.music-view #bookmarks-container,
+body.music-view #arrow-pointer {
+  display: none !important;
+}
+
+.music-topbar {
+  position: sticky;
+  top: 57px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  z-index: 1004;
+  display: none;
+  padding: 12px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+body.music-view .music-topbar {
+  display: flex;
+}
+
+.music-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--game-search-icon);
+  font-size: 18px;
+  z-index: 4;
+}
+
+.music-search-bar:focus-within .music-search-icon {
+  color: var(--accent-color);
+}
+
+.music-grid-container {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  width: 100%;
+  min-width: 0;
+}
+
+.music-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 24px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent-color) 8%, var(--bg-body));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+.music-header-art {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
+}
+
+.music-header-art svg {
+  width: 40px;
+  height: 40px;
+}
+
+.music-header h2 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  letter-spacing: 0.02em;
+}
+
+.music-header p {
+  margin: 0;
+  max-width: 560px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.music-stations {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.music-station {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-color) 5%, var(--bg-body));
+  border: 1px solid color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    background-color 0.14s ease;
+}
+
+.music-station:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent-color) 40%, transparent);
+}
+
+.music-station.is-active {
+  border-color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 12%, var(--bg-body));
+}
+
+.music-station-art {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-color);
+}
+
+.music-station-art svg {
+  width: 20px;
+  height: 20px;
+}
+
+.music-station-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.music-station-live {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-color);
+}
+
+.music-launch {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.music-launch-btn {
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-color);
+  background: var(--accent-color);
+  color: var(--bg-body);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.14s ease, transform 0.14s ease;
+}
+
+.music-launch-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.music-launch-btn.secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-color) 40%, transparent);
+}
+
+/* ---- persistent player: expanded panel ---------------------------------- */
+
+.music-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3000;
+  width: min(380px, calc(100vw - 36px));
+  height: min(560px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-body);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 35%, transparent);
+  box-shadow: 0 24px 60px -18px rgb(0 0 0 / 0.65);
+  animation: music-panel-in 0.18s ease;
+}
+
+/* opacity-only: the persistent iframe host copies this panel's rect with
+   getBoundingClientRect, which INCLUDES transform - a translate animation
+   would make placeFrame measure mid-flight and misalign the embed by 10px. */
+@keyframes music-panel-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.music-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+  user-select: none;
+  /* asienta de ventana: cursor de mover + arrastre nativo desactivado, que si
+     no selects el texto de la cabecera al arrastrar */
+  cursor: grab;
+  touch-action: none;
+}
+
+.music-panel.is-dragging .music-panel-head {
+  cursor: grabbing;
+}
+
+/* maximizada la ventana ocupa todo el espacio disponible: el asa no tiene
+   sentido (no habria donde arrastrarla) y ademas asomaria fuera de la pantalla */
+.music-panel.is-maximized .music-panel-resize {
+  display: none;
+}
+
+/* Asas de redimensionado: cuatro esquinas y cuatro laterales.
+
+   La zona de agarre era de 18px (y lo visible, 8px): con eso era casi imposible
+   agarrar la esquina sin acertar al pixel, y al fallar la ventana saltaba — de
+   ahi que se "~)~"(sic) raro. Ahora la zona es de 24px, el minimo comodo para un
+   puntero, y lo que se ve sigue siendo discreto. */
+.music-panel-resize {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.music-panel-resize-nw,
+.music-panel-resize-se {
+  width: 24px;
+  height: 24px;
+  cursor: nwse-resize;
+}
+
+.music-panel-resize-ne,
+.music-panel-resize-sw {
+  width: 24px;
+  height: 24px;
+  cursor: nesw-resize;
+}
+
+.music-panel-resize-nw { top: 0; left: 0; }
+.music-panel-resize-ne { top: 0; right: 0; }
+.music-panel-resize-sw { bottom: 0; left: 0; }
+.music-panel-resize-se { bottom: 0; right: 0; }
+
+.music-panel-resize-n,
+.music-panel-resize-s {
+  left: 24px;
+  right: 24px;
+  height: 10px;
+  cursor: ns-resize;
+}
+
+.music-panel-resize-e,
+.music-panel-resize-w {
+  top: 24px;
+  bottom: 24px;
+  width: 10px;
+  cursor: ew-resize;
+}
+
+.music-panel-resize-n { top: 0; }
+.music-panel-resize-s { bottom: 0; }
+.music-panel-resize-w { left: 0; }
+.music-panel-resize-e { right: 0; }
+
+/* lo que se ve: solo en las esquinas, y mas apagado de lo que estaba. el borde
+   de 10px de los laterales es zona de agarre invisible, a proposito — marcarlo
+   ensuciaria la ventana sin aportar nada */
+.music-panel-resize-nw::after,
+.music-panel-resize-ne::after,
+.music-panel-resize-sw::after,
+.music-panel-resize-se::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.music-panel-resize-nw::after {
+  top: 5px; left: 5px;
+  border-left: 2px solid var(--accent-color);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 3px 0 0 0;
+}
+.music-panel-resize-ne::after {
+  top: 5px; right: 5px;
+  border-right: 2px solid var(--accent-color);
+  border-top: 2px solid var(--accent-color);
+  border-radius: 0 3px 0 0;
+}
+.music-panel-resize-sw::after {
+  bottom: 5px; left: 5px;
+  border-left: 2px solid var(--accent-color);
+  border-bottom: 2px solid var(--accent-color);
+  border-radius: 0 0 0 3px;
+}
+.music-panel-resize-se::after {
+  bottom: 5px; right: 5px;
+  border-right: 2px solid var(--accent-color);
+  border-bottom: 2px solid var(--accent-color);
+  border-radius: 0 0 3px 0;
+}
+
+/* el asa se ilumina al pasar por encima: sin esto no hay manera de saber que
+   esa franja invisible es agarrable */
+.music-panel-resize:hover::after {
+  opacity: 1;
+}
+
+/* redimensionando, el asa mantenida se queda encendida mientras dura el gesto */
+.music-panel.is-resizing .music-panel-resize:hover::after,
+.music-panel.is-resizing .music-panel-resize::after {
+  opacity: 0.9;
+}
+
+/* mientras se agranda, el borde del que se arrastra se marca: el gesto mas
+   claro cuando la ventana ya esta en su tope */
+.music-panel.is-resizing {
+  outline: 1px dashed color-mix(in srgb, var(--accent-color) 30%, transparent);
+  outline-offset: -1px;
+}
+
+/* aviso de "la fuente activa no puede buscar": mas texto que el resto de
+   estados, asi que ocupa su propia linea y no se queda en un mensaje corto */
+.music-search-unavailable {
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.music-search-unavailable code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent-color) 16%, transparent);
+  font-size: 11.5px;
+}
+
+/* ---- switch de fuente (youtube <-> spotify) -------------------------------- */
+
+.music-source-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+.music-source-switch button {
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.music-source-switch button:hover {
+  color: var(--text-primary);
+}
+
+.music-source-switch button.is-active {
+  background: var(--accent-color);
+  color: var(--bg-body);
+}
+
+.music-panel-title {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+.music-panel-actions {
+  display: flex;
+  gap: 4px;
+  /* el espacio sobrante lo absorbe la fila de acciones, no el ultimo conmutador:
+     en la cabecera hay dos seguidos (fuente y vista) y si el primero empujase,
+     el segundo se iria al otro extremo */
+  margin-left: auto;
+}
+
+/* separador entre los controles de reproduccion y los de ventana. la cabecera
+   tenia ocho elementos en una fila sin grouping: este es el unico cambio que
+   hace legible esa diferencia sin mover nada */
+.music-panel-actions-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: color-mix(in srgb, var(--accent-color) 22%, transparent);
+  flex: 0 0 auto;
+}
+
+.music-panel-actions button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.music-panel-actions button:hover {
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--text-primary);
+}
+
+.music-panel-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* vista pagina: slot del mismo modo que el del embed (el iframe real vive en
+   .music-frame-host y se coloca encima del rect). sin borde ni fondo para que
+   se vea la pagina tal cual, no dentro de un marco. */
+.music-page-slot {
+  flex: 1;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.music-panel-frame iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+}
+
+/* ---- persistent player: mini bar ---------------------------------------- */
+
+.music-mini {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 999px;
+  background: var(--bg-body);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 35%, transparent);
+  box-shadow: 0 14px 34px -12px rgb(0 0 0 / 0.6);
+  animation: music-panel-in 0.18s ease;
+}
+
+.music-mini button {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.12s ease;
+}
+
+.music-mini button:hover {
+  background: color-mix(in srgb, var(--accent-color) 16%, transparent);
+}
+
+.music-mini button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.music-mini .music-mini-expand {
+  color: var(--accent-color);
+}
+
+.music-mini .music-mini-skip {
+  font-size: 15px;
+}
+
+.music-mini .music-mini-close {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .music-header {
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+  }
+
+  .music-panel {
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .music-mini {
+    right: 10px;
+    bottom: 10px;
+  }
+}
+
+/* ---- free-text search results ------------------------------------------- */
+
+.music-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 720px;
+}
+
+.music-search-status {
+  font-size: 12px;
+  color: var(--text-faint, #8a94a6);
+  padding: 6px 2px;
+}
+
+.music-search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-soft, rgba(255, 255, 255, 0.06));
+  background: var(--panel-alt, rgba(255, 255, 255, 0.03));
+  color: var(--text-primary, inherit);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.music-search-result:hover {
+  border-color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+}
+
+.music-search-result-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  color: var(--accent-color);
+}
+
+.music-search-result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.music-search-result-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-search-result-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint, #8a94a6);
+}
+
+/* ---- up next (recomendados estilo youtube) -------------------------------- */
+
+.music-upnext {
+  max-height: 168px;
+  overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+.music-upnext-title {
+  padding: 7px 14px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint, #8a94a6);
+}
+
+.music-upnext-item {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.music-upnext-item:hover {
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+}
+
+.music-upnext-name {
+  display: block;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-upnext-item em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-faint, #8a94a6);
+}
+
+/* ---- embed blocked hint --------------------------------------------------- */
+
+.music-embed-hint {
+  margin: 10px 4px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint, #8a94a6);
+}
+
+/* un <button>, no un <a target="_blank">: el enlace tiene que abrir DENTRO de
+   la app, con su proxy. el reset de button.link (base/index.css) deja el
+   boton con el mismo aspecto que el enlace que sustituye */
+.music-embed-hint button {
+  margin-left: 6px;
+  color: var(--accent-color);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.music-embed-hint button:hover {
+  text-decoration: underline;
+}
+
+/* ---- persistent single-iframe plumbing ----------------------------------- */
+/* one iframe for the whole app, parked in this fixed host div. the host is
+   aligned OVER the active slot (panel or mini bar) by copying its bounding
+   rect (placeFrame in music.ts); while parked it hides offscreen but keeps
+   rendering, so audio survives minimize / view switches. slots are empty
+   divs that only reserve the space (the iframe never lives inside them). */
+
+.music-frame-host {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3000;
+}
+
+.music-frame-host.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.music-frame-host.is-active.is-mini-slot {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 35%, transparent);
+  background: var(--bg-surface-2, #0b0b0b);
+}
+
+.music-panel-frame,
+.music-mini-frame {
+  /* slots only: reserve the space; the iframe lives in .music-frame-host */
+  pointer-events: none;
+}
+
+.music-panel-frame iframe,
+.music-mini-frame iframe {
+  /* fallback only - the real iframe lives in the host and is never moved */
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.music-mini-frame {
+  width: 96px;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}

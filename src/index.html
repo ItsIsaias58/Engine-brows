@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en" dir="ltr" prefix="og: https://ogp.me/ns#">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=IE7" />
+    <title>Coursera | Online Courses, Certificates, & Degrees</title>
+    <style>
+      :root {
+        --bg-body: #050505;
+      }
+      [data-theme="catppuccin"] {
+        --bg-body: #1e1e2e;
+      }
+      [data-theme="dracula"] {
+        --bg-body: #282a36;
+      }
+      [data-theme="synthwave"] {
+        --bg-body: #13111c;
+      }
+      [data-theme="tokyo night"] {
+        --bg-body: #1a1b26;
+      }
+      [data-theme="everforest"] {
+        --bg-body: #272e33;
+      }
+      [data-theme="kanagawa"] {
+        --bg-body: #1f1f28;
+      }
+      [data-theme="solarized"] {
+        --bg-body: #002b36;
+      }
+      [data-theme="sakura"] {
+        --bg-body: #120a10;
+      }
+      body {
+        background: var(--bg-body);
+      }
+    </style>
+    <script>
+      (function () {
+        const storedTheme = localStorage.getItem("theme");
+        if (storedTheme && storedTheme !== "default")
+          document.documentElement.setAttribute("data-theme", storedTheme);
+      })();
+    </script>
+    <link rel="icon" href="/!!/https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
+    <script>
+      (function () {
+        const peakUrls = [
+          "/assets/images/peaks/hachii.webp",
+          "/assets/images/peaks/kona.webp",
+          "/assets/images/peaks/osa.webp",
+          "/assets/images/peaks/azu.webp",
+        ];
+        let previousIndex = -1;
+        try {
+          const storedIndex = localStorage.getItem("lyra-title-peak-index");
+          if (storedIndex !== null) previousIndex = Number(storedIndex);
+        } catch {}
+
+        let nextIndex = Math.floor(Math.random() * peakUrls.length);
+        if (peakUrls.length > 1 && nextIndex === previousIndex) {
+          nextIndex =
+            (nextIndex + 1 + Math.floor(Math.random() * (peakUrls.length - 1))) %
+            peakUrls.length;
+        }
+
+        document.documentElement.dataset.peakIndex = String(nextIndex);
+        const preload = document.createElement("link");
+        preload.rel = "preload";
+        preload.as = "image";
+        preload.type = "image/webp";
+        preload.href = peakUrls[nextIndex];
+        preload.fetchPriority = "high";
+        document.head.append(preload);
+        try {
+          localStorage.setItem("lyra-title-peak-index", String(nextIndex));
+        } catch {}
+      })();
+    </script>
+    <script>
+      (function () {
+        const recoveryUrl = new URL(window.location.href);
+        let recoveryAttempted = recoveryUrl.searchParams.has("lyra-recovery");
+
+        window.__lyraRecoverAsset = function () {
+          if (recoveryAttempted) return;
+          recoveryAttempted = true;
+          const target = new URL(window.location.href);
+          target.searchParams.set("lyra-recovery", "1");
+          window.location.replace(target.href);
+        };
+        window.addEventListener(
+          "vite:preloadError",
+          function (event) {
+            event.preventDefault();
+            window.__lyraRecoverAsset();
+          },
+          { once: true },
+        );
+        window.addEventListener(
+          "error",
+          function (event) {
+            const element = event.target;
+            const tagName = element?.tagName?.toLowerCase();
+            const assetUrl =
+              tagName === "script"
+                ? element.src
+                : tagName === "link" &&
+                    (element.rel === "modulepreload" ||
+                      element.rel === "stylesheet")
+                  ? element.href
+                  : "";
+            if (!assetUrl) return;
+            const failedUrl = new URL(assetUrl, window.location.href);
+            if (
+              failedUrl.origin === window.location.origin &&
+              /^\/assets\/[a-f0-9]{12}\/[^/]+$/.test(failedUrl.pathname)
+            ) {
+              window.__lyraRecoverAsset();
+            }
+          },
+          true,
+        );
+      })();
+    </script>
+    <script type="module" src="/app/entry.tsx"></script>
+  </head>
+  <body>
+    <noscript>javascript is required... /ᐠ - ˕ -マ</noscript>
+    <main class="meow"></main>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+.DS_Store
+.env
+*.db
+*.db-shm
+*.db-wal
+node_modules/
+dist/
+target/
+**/target/
+bun.lock
+/pnpm-lock.yaml
+Cargo.lock
+public/b/fl/
+/vendor/cloudflared/
+/logs/public-url.txt
+/logs/ssh_known_hosts
+
+# scrapes de enlaces y capturas de debug: artefactos de una sesion concreta,
+# nunca parte del repo
+/links_*.txt
+/logs/*
+!/logs/.gitkeep
+
+# checkout de referencia del simulador CS:GO original (Laravel, 6 MB). no es una
+# dependencia: los renders de las skins se bajan con scripts/fetch-csgo-assets.mjs
+# desde la API de ByMykel. solo lo lee quien consulta el juego de origen.
+/CS-GO-OpenCase-Simulator-master/

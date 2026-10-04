@@ -1,0 +1,148 @@
+/* ==========================================================================
+   Adaptacion a la pantalla
+   --------------------------------------------------------------------------
+   Esta hoja se carga al final a proposito, para poder reajustar lo que las
+   otras ya definieron.
+
+   La idea del arreglo: la barra superior era una sola linea rigida, asi que al
+   estrecharse la ventana los bloques se encimaban entre si. Ahora la barra
+   envuelve (flex-wrap) y, antes de esconder algo, se compacta por fases. En
+   pantallas chicas se sacrifica el adorno (etiquetas, texto de XP, "· Trading
+   Floor") pero se conservan los numeros importantes: dinero, nivel y sesion.
+   ========================================================================== */
+
+/* --- barra superior ------------------------------------------------------ */
+
+/* sin esto los bloques se encimaban en vez de bajar de linea */
+.hud{ flex-wrap:wrap; row-gap:8px; column-gap:12px; }
+.hud-brand{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.hud-right{ flex:0 1 auto; flex-wrap:wrap; row-gap:6px; justify-content:flex-end; }
+.wallet-inline{ flex-wrap:wrap; row-gap:6px; min-width:0; }
+
+/* fase 1: fuera el apellido de la marca */
+@media (max-width: 1500px){
+  .hud-brand span{ display:none; }
+}
+
+/* fase 2: menos aire, numeros un poco mas chicos */
+@media (max-width: 1380px){
+  .hud{ gap:10px; padding:9px 14px; }
+  .hud-tab{ padding:6px 11px; font-size:11.5px; }
+  .wallet-value{ font-size:12.5px; }
+  .hud-chip.hud-level{ min-width:118px; }
+  .hud-session strong{ max-width:92px; }
+}
+
+/* fase 3: se va el texto de XP (queda la barra) y la cartera se aprieta */
+@media (max-width: 1240px){
+  .hud-xp-text{ display:none; }
+  .hud-chip.hud-level{ min-width:0; flex:0 0 auto; }
+  .wallet-stat{ padding:3px 8px; gap:5px; }
+  .wallet-sub{ display:none; }
+  .hud-right{ gap:8px; }
+  .hud-icon-btn{ width:32px; height:32px; }
+}
+
+/* fase 4: la cartera pierde etiquetas pero conserva los dos numeros (el dinero
+   es lo ultimo que debe desaparecer) y la sesion se queda en el punto */
+@media (max-width: 1060px){
+  .wallet-label{ display:none; }
+  .hud-session strong{ display:none; }
+  .hud-session{ padding:6px 8px; }
+}
+
+/* el dinero se queda tambien en pantallas chicas: en un juego de bolsa es lo
+   ultimo que se debe esconder. se compacta en vez de desaparecer. */
+@media (max-width: 900px){
+  .wallet-inline{ display:flex; }
+  .wallet-stat{ padding:3px 7px; }
+  .wallet-value{ font-size:12px; }
+}
+
+/* fase 5: la barra pasa a dos lineas de forma ordenada. el nivel se deja
+   visible: es progreso del jugador, no adorno */
+@media (max-width: 860px){
+  .hud{ padding:8px 12px; row-gap:7px; }
+  .hud-chip.hud-level{ display:flex; padding:5px 10px; }
+  .hud-tab{ padding:5px 9px; font-size:11px; }
+  .hud-brand{ font-size:12.5px; }
+  .wallet-value{ font-size:12px; }
+  .hud-icon-btn{ width:30px; height:30px; }
+  .ticker{ height:auto; flex-wrap:wrap; row-gap:4px; padding:6px 12px; }
+  .ticker-close{ display:none; }
+}
+
+/* fase 6: movil. la barra se ordena en filas claras: [marca + iconos], [dinero],
+   [tabs]. el chip de nivel se va porque el nivel sigue en Ajustes y Tu progreso */
+@media (max-width: 620px){
+  .hud{ padding:6px 9px; column-gap:6px; row-gap:6px; }
+  .hud-brand{ order:1; }
+  .hud-tabs{ order:3; width:100%; }
+  .hud-tab{ flex:1; text-align:center; }
+  .wallet-inline{ order:2; flex:1 1 100%; }
+  .hud-right{ order:1; margin-left:auto; gap:5px; }
+  .hud-chip.hud-level{ display:none; }
+  .wallet-stat{ padding:2px 6px; flex:1 1 auto; justify-content:space-between; }
+  .wallet-value{ font-size:11.5px; }
+  .tape-strip{ display:none; }
+  .ticker-track-wrap{ display:none; }
+}
+
+/* --- rejilla de trabajo -------------------------------------------------- */
+
+/* en pantallas mas justas las columnas laterales ceden terreno a la grafica */
+@media (max-width: 1400px){
+  .workspace{ grid-template-columns:250px 1fr 250px; }
+}
+@media (max-width: 1200px){
+  .workspace{ grid-template-columns:215px 1fr 215px; gap:10px; padding:10px; }
+  /* paneles mas compactos: se recortan paddings y tipografias de fila, no
+     informacion */
+  .panel-head{ padding:9px 12px; font-size:12px; }
+  .panel-body{ padding:10px 12px; }
+  .col{ gap:10px; }
+}
+
+/* sin esto un hijo de grid no baja de su ancho min-content: la columna del
+   grafico medía 923px dentro de un viewport de 430px y desbordaba la pagina a
+   lo ancho (era la sensacion de que todo se veia raro y encimado). */
+.workspace > .col{ min-width:0; }
+/* ningun panel debe empujar la columna: el grafico y las tablas se recortan
+   dentro de su carril en vez de estirar la pagina */
+.col > .panel{ min-width:0; }
+.chart-canvas-wrap, .panel-chart, .market-rows, .mini-rows{ min-width:0; max-width:100%; }
+.chart-scrubber{ min-width:0; flex-wrap:wrap; row-gap:4px; }
+.scrub-track, .scrub-bar{ min-width:0; }
+
+/* una sola columna: la grafica pasa primero (order) para que sea lo que se ve,
+   y deja de estar encerrada en una tira corta */
+@media (max-width: 980px){
+  .workspace{ grid-template-columns:1fr; overflow-y:auto; overflow-x:hidden; }
+  .col-center, .col-left, .col-right{ min-width:0; }
+  .col{ overflow:visible; }
+  .col-left{ order:2; }
+  .col-center{ order:1; }
+  .col-right{ order:3; }
+  .panel-chart{ min-height:400px; }
+  .chart-head{ padding:11px 13px; }
+  .split-row{ grid-template-columns:1fr; height:auto; }
+  .chart-scrubber{ padding:8px 13px; }
+}
+
+@media (max-width: 620px){
+  .panel-chart{ min-height:320px; }
+  .workspace{ padding:8px; gap:8px; }
+  .rail{ width:52px; flex:0 0 52px; padding:14px 0; gap:16px; }
+  .rail-btn{ width:34px; height:34px; }
+  .rail-avatar{ width:30px; height:30px; }
+  /* el tooltip lateral no cabe: mejor sin el que encimado */
+  .rail-btn[data-tip]::after{ display:none; }
+  .chart-tools{ gap:2px; }
+  .tool-btn{ padding:5px 7px; font-size:11px; }
+}
+
+/* apaisado en movil: la grafica necesita altura, no migas */
+@media (max-width: 980px) and (orientation: landscape) and (max-height: 520px){
+  .panel-chart{ min-height:280px; }
+  .hud{ padding:6px 10px; }
+}

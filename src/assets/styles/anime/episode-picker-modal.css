@@ -1,0 +1,71 @@
+.episode-picker-modal {
+  max-width: 450px;
+  width: 90%;
+  max-height: 65vh;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+
+.episode-picker-modal-title {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text-primary);
+  padding-right: 36px;
+}
+
+.episode-picker-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.episode-picker-virtual-spacer {
+  grid-column: 1 / -1;
+  pointer-events: none;
+}
+
+.episode-picker-modal-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.episode-season-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.episode-season-tab {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 10px;
+  background-color: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background 0.1s ease, transform 0.1s ease, color 0.1s ease;
+}
+
+.episode-season-tab:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+  transform: scale(1.02);
+}
+
+.episode-season-tab.is-active {
+  background-color: var(--active-bg);
+  color: var(--text-primary);
+  transform: scale(1);
+}
+
+@media (max-width: 700px) {
+  .episode-picker-modal {
+    width: calc(100% - 24px);
+    padding: 18px;
+  }
+}

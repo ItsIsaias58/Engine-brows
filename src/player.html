@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>player :3</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: Lexend, sans-serif; }
+    </style>
+    <script>
+      (function () {
+        const recoveryUrl = new URL(window.location.href);
+        let recoveryAttempted = recoveryUrl.searchParams.has("lyra-recovery");
+
+        window.__lyraRecoverAsset = function () {
+          if (recoveryAttempted) return;
+          recoveryAttempted = true;
+          const target = new URL(window.location.href);
+          target.searchParams.set("lyra-recovery", "1");
+          window.location.replace(target.href);
+        };
+        window.addEventListener(
+          "vite:preloadError",
+          function (event) {
+            event.preventDefault();
+            window.__lyraRecoverAsset();
+          },
+          { once: true },
+        );
+        window.addEventListener(
+          "error",
+          function (event) {
+            const element = event.target;
+            const tagName = element?.tagName?.toLowerCase();
+            const assetUrl =
+              tagName === "script"
+                ? element.src
+                : tagName === "link" &&
+                    (element.rel === "modulepreload" ||
+                      element.rel === "stylesheet")
+                  ? element.href
+                  : "";
+            if (!assetUrl) return;
+            const failedUrl = new URL(assetUrl, window.location.href);
+            if (
+              failedUrl.origin === window.location.origin &&
+              /^\/assets\/[a-f0-9]{12}\/[^/]+$/.test(failedUrl.pathname)
+            ) {
+              window.__lyraRecoverAsset();
+            }
+          },
+          true,
+        );
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="player-root"></div>
+    <script type="module" src="/app/playerEntry.tsx"></script>
+  </body>
+</html>

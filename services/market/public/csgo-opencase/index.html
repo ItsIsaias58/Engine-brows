@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CS:GO — OpenCase · owngames</title>
+  <link rel="icon" href="cover.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="/owngames/">← owngames</a>
+    <h1>◆ OPENCASE</h1>
+    <div class="wallet" id="wallet">
+      <span class="wallet-label">cash</span>
+      <strong id="walletCash">$0</strong>
+      <button id="openBankBtn" class="ghost" title="Banca: deposita/retira, el mismo banco de la bolsa">🏦 Banca</button>
+      <button id="topLoginBtn" class="ghost is-hidden" title="Iniciar sesión con tu cuenta de la bolsa">🔐 Iniciar sesión</button>
+      <a id="gotoBolsa" class="ghost" href="/owngames/bolsa-trading-floor/" title="Volver al piso de trading">📈 Bolsa</a>
+    </div>
+  </header>
+
+  <div id="sessionGate" class="gate">
+    <div class="gate-card">
+      <div class="gate-crate">📦</div>
+      <h2>Conecta tu sesión</h2>
+      <p>El mismo dinero de <strong>Bolsa — Trading Floor</strong>. Si ya iniciaste sesión ahí, entra con la misma cuenta y tu cash, banco e inventario viajan contigo.</p>
+      <div class="gate-actions">
+        <button id="gateLogin" class="primary">Iniciar sesión</button>
+        <button id="gateGuest">Jugar como invitado</button>
+      </div>
+      <p class="gate-note" id="gateNote"></p>
+    </div>
+  </div>
+
+  <main id="app" class="app is-hidden">
+    <nav class="tabs">
+      <button class="tab is-active" data-tab="cases">📦 Cajas</button>
+      <button class="tab" data-tab="inventory">🎒 Inventario <span id="invCount" class="count"></span></button>
+      <button class="tab" data-tab="trades">🔁 Tradeos</button>
+      <button class="tab" data-tab="stats">📊 Estadísticas</button>
+    </nav>
+
+    <section id="tab-cases" class="tabview is-active">
+      <p class="hint">Elige una caja. La ruleta gira 40 items y frena en tu skin — el resultado lo decide el server, no el navegador.</p>
+      <div id="caseGrid" class="case-grid"></div>
+      <div id="rouletteWrap" class="roulette-wrap is-hidden">
+        <div class="roulette-marker"></div>
+        <div id="roulette" class="roulette"></div>
+        <!-- regreso siempre disponible: mientras gira está deshabilitado, pero
+             visible — nunca más quedarse atrapado sin botón de salida -->
+        <button id="rouletteBack" class="ghost roulette-back">← Volver a las cajas</button>
+      </div>
+      <div id="resultCard" class="result is-hidden"></div>
+    </section>
+
+    <section id="tab-inventory" class="tabview">
+      <div class="inv-head">
+        <span id="invValue" class="inv-value mono"></span>
+        <button id="sellAllBtn" class="danger">Vender todo</button>
+      </div>
+      <div id="inventory" class="inv-grid"></div>
+    </section>
+
+    <section id="tab-trades" class="tabview">
+      <div id="tradesWrap"></div>
+    </section>
+
+    <section id="tab-stats" class="tabview">
+      <div id="statsWrap"></div>
+    </section>
+  </main>
+
+  <!-- banca flotante: la MISMA cuenta del banco de la bolsa -->
+  <div id="bankOverlay" class="overlay">
+    <div class="bank-panel">
+      <header class="bank-head">
+        <h2>🏦 Banca compartida</h2>
+        <button id="bankClose" class="ghost">✕</button>
+      </header>
+      <p class="hint">Este es el banco de tu cuenta de bolsa: depositas para guardarlo a buen recaudo, retiras para abrir cajas. El saldo y los préstamos son los mismos en ambos juegos.</p>
+      <div id="bankBody"></div>
+    </div>
+  </div>
+
+  <!-- login/emergente de sesión -->
+  <div id="authOverlay" class="overlay">
+    <div class="auth-panel">
+      <header class="bank-head">
+        <h2 id="authTitle">Iniciar sesión</h2>
+        <button id="authClose" class="ghost">✕</button>
+      </header>
+      <label class="field">Usuario <input id="authName" autocomplete="username"></label>
+      <label class="field">Contraseña <input id="authPass" type="password" autocomplete="current-password"></label>
+      <p id="authError" class="auth-error"></p>
+      <div class="gate-actions">
+        <button id="authSubmit" class="primary">Entrar</button>
+        <button id="authModeToggle" class="ghost">No tengo cuenta — registrarme</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <footer class="page-foot">Sonidos: <a href="https://developers.google.com/assistant/tools/sound-library" target="_blank" rel="noopener">Google Assistant Sound Library</a> · Fotos: renders de CS:GO vía <a href="https://github.com/ByMykel/CSGO-API" target="_blank" rel="noopener">ByMykel/CSGO-API</a></footer>
+
+  <script>
+    // los tics de la ruleta son WebAudio y necesitan un gesto del usuario:
+    // sin esto, la primera apertura de caja saldría muda (autoplay policy)
+    (function () {
+      const unlock = () => {
+        try {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (Ctx) { const ctx = new Ctx(); if (ctx.state === "suspended") ctx.resume().catch(() => {}); }
+        } catch {}
+        window.removeEventListener("pointerdown", unlock);
+        window.removeEventListener("keydown", unlock);
+      };
+      window.addEventListener("pointerdown", unlock);
+      window.addEventListener("keydown", unlock);
+    })();
+  </script>
+  <script src="util.js"></script>
+<script src="weapons.js"></script>
+  <script src="effects.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+   <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>404!!</title>
+      <link rel="icon" type="image/svg+xml" href="/assets/images/icons/favicon.svg">
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+      <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
+      <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
+      <style>
+         body {
+         font-family: 'Lexend', sans-serif;
+         margin: 0;
+         padding: 0;
+         height: 85vh;
+         background-color: #050505;
+         background-size: 100% 100%, 20px 20px, 20px 20px;
+         color: white;
+         display: flex;
+         justify-content: center;
+         align-items: center;
+         }
+         ::selection {
+         background-color: #ffffff;
+         color: #000000;
+         }
+         .container {
+         text-align: center;
+         padding: 0 20px;
+         }
+         h1 {
+         font-size: 40px;
+         font-weight: 400;
+         margin-bottom: 15px;
+         color: #e7e7e7;
+         }
+         p {
+         margin: 10px auto;
+         font-size: 12px;
+         color: #d1d1d1ef;
+         max-width: 300px;
+         line-height: 1.5;
+         }
+      </style>
+   </head>
+   <body>
+      <div class="container" id="msgBox">
+         <h1>404</h1>
+         <p style="font-size: 14px; color: #dbdbdb; margin-top: -15px;">
+            this page does not exist... /ᐠ - ˕ -マ
+         </p>
+      </div>
+
+      <script>
+         if (window.top !== window.self) {
+             const box = document.getElementById('msgBox');
+             box.innerHTML = `
+                 <p style="font-size: 14px; color: #dbdbdb; margin-top: 25px; max-width: 400px;">one sec! your content will be available very soon...</p>
+             `;
+         }
+      </script>
+   </body>
+</html>

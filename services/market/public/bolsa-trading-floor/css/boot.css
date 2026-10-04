@@ -1,0 +1,112 @@
+/* Pantalla de carga -------------------------------------------------------
+   Cubre el juego mientras se preparan tipografias, cache local y conexion.
+   Se retira con una transicion corta para que no haya salto. */
+
+.boot{
+  position:fixed; inset:0; z-index:200;
+  display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(120% 90% at 50% 0%, #101826 0%, var(--bg) 60%);
+  transition:opacity .35s var(--ease), visibility .35s var(--ease);
+}
+.boot.is-done{ opacity:0; visibility:hidden; pointer-events:none; }
+
+.boot-card{
+  width:min(420px, 88vw);
+  display:flex; flex-direction:column; align-items:center; gap:11px;
+  text-align:center;
+}
+.boot-mark{
+  width:44px; height:44px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--accent); font-size:20px;
+  border:1px solid var(--accent-dim); border-radius:12px;
+  animation:markGlow 4s ease-in-out infinite;
+}
+.boot-title{ font-size:15px; font-weight:700; letter-spacing:.01em; }
+.boot-title span{ color:var(--text-faint); font-weight:400; }
+.boot-step{ font-size:12px; color:var(--text-dim); min-height:16px; }
+.boot-track{
+  position:relative;
+  width:100%; height:5px; border-radius:3px;
+  background:var(--panel-alt); overflow:hidden;
+}
+/* Antes de que boot.js corra (con la red lenta tambien tarda) todavia no se
+   puede medir nada: una barra indeterminada es lo honesto, no un porcentaje
+   inventado. boot.js quita .is-idle en su primer pintado. */
+.boot-track.is-idle::after{
+  content:''; position:absolute; inset:0 auto 0 0; width:34%;
+  background:linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation:bootSweep 1.15s ease-in-out infinite;
+}
+@keyframes bootSweep{
+  0%{ transform:translateX(-110%); }
+  100%{ transform:translateX(320%); }
+}
+.boot-fill{
+  height:100%; width:0%;
+  background:linear-gradient(90deg, var(--accent), var(--up));
+  transition:width .25s var(--ease);
+}
+.boot-row{
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  gap:8px; font-size:11px; color:var(--text-faint);
+}
+.boot-pct{ letter-spacing:.04em; color:var(--text-dim); }
+.boot-count{
+  margin-left:auto; letter-spacing:.02em;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;
+}
+
+/* Lista de archivos: cada fila es un asset real, con los bytes y el tiempo que
+   el navegador tardo en traerlo (o de la cache de donde salio). */
+.boot-assets{
+  width:100%; max-height:118px; overflow-y:auto; overscroll-behavior:contain;
+  display:flex; flex-direction:column; gap:0;
+  padding:5px 6px; text-align:left;
+  border-radius:8px; border:1px solid var(--line-soft);
+  background:rgba(6,10,16,.35);
+  font-family:var(--font-mono); font-size:10.5px; line-height:1.75;
+  scrollbar-width:thin;
+}
+.boot-assets:empty{ display:none; }
+.boot-asset{
+  display:grid; grid-template-columns:12px minmax(0,1fr) auto;
+  gap:8px; align-items:baseline;
+  padding:0 3px; border-radius:4px;
+  color:var(--text-faint);
+}
+.boot-asset .ba-mark{ text-align:center; }
+.boot-asset .ba-name{
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.boot-asset .ba-meta{
+  white-space:nowrap; font-variant-numeric:tabular-nums;
+  color:var(--text-faint);
+}
+.boot-asset.is-pending{ opacity:.42; }
+.boot-asset.is-loading{ color:var(--accent); background:rgba(91,140,255,.09); }
+.boot-asset.is-loading .ba-meta{ color:var(--accent); opacity:.8; }
+.boot-asset.is-done{ color:var(--text-dim); }
+.boot-asset.is-done .ba-mark{ color:var(--up); }
+.boot-asset.is-done .ba-meta{ opacity:.75; }
+.boot-retry{
+  background:var(--accent); color:#0A0E15;
+  border:none; border-radius:999px;
+  font-size:11.5px; font-weight:700; padding:6px 14px;
+}
+.boot-retry:hover{ transform:translateY(-1px); }
+.boot-note{ font-size:11px; color:var(--gold); line-height:1.5; min-height:0; }
+.boot-note:empty{ display:none; }
+
+@media (prefers-reduced-motion: reduce){
+  .boot, .boot-fill, .boot-mark{ transition:none; animation:none; }
+}
+
+/* en pantallas bajas la lista se recorta antes que empujar la tarjeta fuera */
+@media (max-height: 620px){
+  .boot-assets{ max-height:88px; }
+}
+@media (max-width: 420px){
+  .boot-card{ width:min(360px, 92vw); }
+}

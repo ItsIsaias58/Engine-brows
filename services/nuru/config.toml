@@ -1,0 +1,55 @@
+[server]
+bind = ["tcp", "127.0.0.1:4001"]
+transport = "websocket"
+resolve_ipv6 = false
+tcp_nodelay = true
+file_raw_mode = false
+use_real_ip_headers = true
+non_ws_response = "hii you should join discord.gg/4GeWaGPh6c :3!!"
+log_level = "WARN"
+runtime = "threadpercore"
+
+[wisp]
+allow_wsproxy = true
+prefix = "/w"
+wisp_v2 = true
+extensions = ["udp", "motd"]
+password_extension_required = false
+certificate_extension_required = false
+ping_interval_secs = 15
+resolve_cache_ttl_secs = 300
+
+[stream]
+tcp_nodelay = true
+resolve_timeout_ms = 5000
+connect_timeout_ms = 8000
+allow_udp = true
+allow_wsproxy_udp = true
+dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
+# SSRF: el relay es publico (server/prod.mjs reenvia /w/ aqui) y sin
+# autenticacion, asi que con esto abierto cualquiera que alcance el dominio
+# usaba el servidor para alcanzar su loopback, su red privada y el endpoint de
+# metadatos de la instancia. is_global() en src/stream.rs filtra eso; estos tres
+# flags son los que lo tenian desactivado.
+#
+# allow_loopback = false      cubre ::1 y 127.0.0.0/8
+# allow_non_global = false    cubre 10/8, 172.16/12, 192.168/16, 169.254/16,
+#                             fe80::/10, CGNAT 100.64/10, benchmarking, ULA
+# allow_direct_ip = false     impide pedir una IP literal y saltarse el filtro
+#                             por nombre de host
+#
+# si necesitas alcanzar algo especifico de tu LAN, metelo en allow_hosts /
+# allow_tcp_hosts en vez de reabrir el rango entero.
+allow_direct_ip = false
+allow_loopback = false
+allow_multicast = true
+allow_global = true
+allow_non_global = false
+allow_tcp_hosts = []
+block_tcp_hosts = []
+allow_udp_hosts = []
+block_udp_hosts = []
+allow_hosts = []
+block_hosts = []
+allow_ports = []
+block_ports = []

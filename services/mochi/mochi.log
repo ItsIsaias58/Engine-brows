@@ -1,0 +1,4 @@
+[2m2026-09-26T16:51:17.566457Z[0m [32m INFO[0m [2mmochi::tuning[0m[2m:[0m detected system: 7639mb ram, 12 cores, 78659mb disk
+[2m2026-09-26T16:51:17.566497Z[0m [32m INFO[0m [2mmochi[0m[2m:[0m tuning: 11 workers, 159mb cache cap, 318mb stream cache, 39mb max entry, 64mb stream max entry, 14mb ram limit, req permits 48/238/238, stream permits 8/24/96, rewrite permits 1/12/48, 1gb disk cache
+[2m2026-09-26T16:51:17.569101Z[0m [32m INFO[0m [2mmochi[0m[2m:[0m mochi listening on 0.0.0.0:4002!! (˵◝ ⩊  ◜˵マ
+[2m2026-09-26T16:55:03.574909Z[0m [31mERROR[0m [2mmochi::proxy[0m[2m:[0m upstream request failed: error sending request for url (https://basura/)... /ᐠ - ˕ -マ

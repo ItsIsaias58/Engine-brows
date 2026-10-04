@@ -1,0 +1,17 @@
+let folio;
+let folioConfigLoaded = false;
+let folioConfigPromise = null;
+let metaPending = null;
+let metaFlush = null;
+const _inflight = new Map();
+const _activePrefetches = new Map();
+const _prefetchTimes = new Map();
+const _prefetchedResponses = new Map();
+const _runtimeRevalidateTimes = new Map();
+const _preconnected = new Set();
+const _trimmingCaches = new Set();
+const _lastCacheTrim = new Map();
+let _lastTransportError = 0;
+let _consecutiveProxyFailures = 0;
+const _injectPatchCache = new Map();
+self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;

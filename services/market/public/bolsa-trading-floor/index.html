@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bolsa — Trading Floor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="css/trading-extra.css">
+<link rel="stylesheet" href="css/auth.css">
+<link rel="stylesheet" href="css/admin.css">
+<link rel="stylesheet" href="css/progression.css">
+<link rel="stylesheet" href="css/responsive.css">
+<link rel="stylesheet" href="css/boot.css">
+</head>
+<body>
+
+<!-- Pantalla de carga: prepara tipografias, cache local y conexion antes de
+     mostrar el juego. Se ve tanto en la primera visita como al volver. -->
+<div class="boot" id="bootOverlay">
+  <div class="boot-card">
+    <div class="boot-mark">◆</div>
+    <h1 class="boot-title">Bolsa <span>· Trading Floor</span></h1>
+    <div class="boot-track is-idle" id="bootTrack" role="progressbar" aria-label="Archivos descargados" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="boot-fill" id="bootFill"></div></div>
+    <div class="boot-row">
+      <span class="boot-pct mono" id="bootPct">0%</span>
+      <span class="boot-count mono" id="bootCount"></span>
+      <button class="boot-retry" id="bootRetry" hidden>Reintentar</button>
+    </div>
+    <div class="boot-assets mono" id="bootAssets" aria-hidden="true"></div>
+    <p class="boot-step" id="bootStep" role="status" aria-live="polite">Preparando el mercado…</p>
+    <p class="boot-note" id="bootNote"></p>
+  </div>
+</div>
+
+<div class="app">
+
+  
+  <div class="bankrupt-overlay" id="bankruptOverlay">
+    <div class="bankrupt-card">
+      <div class="bankrupt-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7"/></svg>
+      </div>
+      <h2>Te quedaste sin fondos</h2>
+      <p>Tus operaciones se cerraron al caer a negativo. Recibirás una recapitalización de $10,000 en:</p>
+      <div class="bankrupt-timer mono" id="bankruptTimer">01:00</div>
+      <div class="bankrupt-bar"><div class="bankrupt-bar-fill" id="bankruptBarFill"></div></div>
+    </div>
+  </div>
+
+  
+  <aside class="rail">
+    <div class="rail-mark">◆</div>
+    <nav class="rail-nav">
+      <button class="rail-btn" data-tip="Academia">
+        <svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z M6 10v6c0 1.5 3 3 6 3s6-1.5 6-3v-6"/></svg>
+      </button>
+      <button class="rail-btn" data-tip="Noticias">
+        <svg viewBox="0 0 24 24"><path d="M4 5h13a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z M7 8h7 M7 12h7 M7 16h4"/></svg>
+      </button>
+      <button class="rail-btn" data-tip="Banco" title="Banco · Ahorro · Préstamos · Transferencias">
+        <svg viewBox="0 0 24 24"><path d="M12 2 3 7h18L12 2z M4 9h16 M6 9v9 M10 9v9 M14 9v9 M18 9v9 M3 20h18"/></svg>
+      </button>
+      <button class="rail-btn" data-tip="Casino" title="Casino · Blackjack · Tragamonedas · Ruleta">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M8.5 9.5h.01 M15.5 9.5h.01 M12 13.5h.01 M8.5 16.5h.01 M15.5 16.5h.01"/></svg>
+      </button>
+      <button class="rail-btn rail-player" data-tip="Progreso" title="Perfil · Ranking · Logros">
+        <svg viewBox="0 0 24 24"><path d="M8 21h8 M12 17v4 M5 4h14v6a7 7 0 0 1-14 0V4z M5 7H3v2a3 3 0 0 0 3 3 M19 7h2v2a3 3 0 0 1-3 3"/></svg>
+      </button>
+    </nav>
+    <button class="rail-btn rail-avatar" id="railAvatar" data-tip="Perfil">JD</button>
+  </aside>
+
+  <div class="main">
+
+    
+    <header class="hud">
+      <div class="hud-brand">Bolsa <span>· Trading Floor</span></div>
+
+      <div class="hud-tabs" id="hudTabs">
+        <button class="hud-tab is-active" data-view="trading">Intercambio</button>
+        <button class="hud-tab" data-view="research">Investigación</button>
+        <button class="hud-tab" data-view="empire">Imperio</button>
+      </div>
+
+      
+      <div class="wallet-inline" id="walletStrip">
+        <div class="wallet-stat" id="walletTotalStat" title="Total en tiempo real = dinero disponible + cash en inversiones.">
+          <span class="wallet-label">Total</span>
+          <strong class="mono wallet-value" id="walletTotal">$10,000.00</strong>
+          <em class="mono wallet-sub" id="walletTotalChange">+$0.00 · +0.00%</em>
+        </div>
+        <div class="wallet-stat" title="Dinero disponible para invertir: baja al comprar y vuelve cuando vendes.">
+          <span class="wallet-label">Disponible</span>
+          <strong class="mono wallet-value" id="walletCash">$10,000.00</strong>
+        </div>
+      </div>
+
+      <div class="hud-right">
+        <div class="hud-chip hud-session" id="hudSessionChip">
+          <span class="hud-session-dot" id="hudSessionDot"></span>
+          <strong id="hudSessionName">sin sesión</strong>
+          <button class="hud-session-btn" id="hudSessionBtn">Entrar</button>
+        </div>
+
+        <div class="hud-chip hud-level" id="hudLevelChip">
+          <span class="hud-level-badge">Nv. <strong id="hudLevel">1</strong></span>
+          <div class="hud-xp-track"><div class="hud-xp-fill" id="hudXpFill"></div></div>
+          <span class="hud-xp-text mono" id="hudXpText">0 / 400 XP</span>
+        </div>
+
+        <div class="hud-bell-wrap">
+          <button class="hud-icon-btn" id="hudBellBtn" aria-label="Notificaciones">
+            <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="hud-bell-badge" id="hudBellBadge" style="display:none">0</span>
+          </button>
+          <div class="hud-dropdown" id="hudNotifDropdown">
+            <div class="hud-dropdown-head">
+              <span>Notificaciones</span>
+              <button id="hudClearNotifs">Limpiar</button>
+            </div>
+            <div class="hud-dropdown-body" id="hudNotifList">
+              <div class="mini-empty">Sin notificaciones todavía.</div>
+            </div>
+          </div>
+        </div>
+
+        <button class="hud-icon-btn" id="hudCasesBtn" aria-label="Cajas de mercado" title="Cajas de mercado">
+          <svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z M3 8l9 5 9-5 M12 13v9"/></svg>
+        </button>
+
+        <button class="hud-icon-btn" id="hudSettingsBtn" aria-label="Ajustes">
+          <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    
+    
+
+    <header class="ticker">
+      <div class="ticker-clock">
+        <span class="ticker-status"><i class="dot"></i>Mercado abierto</span>
+        <span class="ticker-close">cierra en <strong id="closeTimer">06:01:24</strong></span>
+        <span class="ticker-mood" id="tickerMood" title="Humor del mercado">
+          <i class="mood-dot"></i><strong id="tickerMoodLabel">--</strong>
+        </span>
+      </div>
+      <div class="ticker-track-wrap">
+        <div class="ticker-track" id="tickerTrack"></div>
+      </div>
+      <div class="ticker-date" id="tickerDate">--</div>
+    </header>
+
+    <div class="event-banner" id="eventBanner"></div>
+
+    <div class="tape-strip" id="tapeStrip">
+      <span class="tape-strip-label">cinta en vivo</span>
+      <div class="tape-items" id="tapeItems"><span class="tape-empty">esperando operaciones...</span></div>
+    </div>
+
+    
+    <div class="view view-research" id="viewResearch">
+      <div class="research-grid">
+        <div class="panel">
+          <div class="panel-head panel-head-static"><span>📅 Calendario de resultados</span></div>
+          <div class="panel-body panel-body-flush">
+            <div class="mini-rows" id="earningsCalendar"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head panel-head-static"><span>⚡ Mayores movimientos</span></div>
+          <div class="panel-body panel-body-flush">
+            <div class="mini-rows" id="topMovers"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head panel-head-static"><span>🏭 Desempeño por sector</span></div>
+          <div class="panel-body panel-body-flush">
+            <div class="mini-rows" id="sectorPerf"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="view view-empire" id="viewEmpire">
+      <div class="empire-grid">
+        <div class="empire-card empire-card-wide">
+          <span class="empire-label">Valor neto</span>
+          <strong class="empire-value mono" id="empireNetWorth">$10,000.00</strong>
+          <span class="empire-sub" id="empireNetWorthSub">cash $10,000.00 · 0 posiciones abiertas</span>
+        </div>
+        <div class="empire-card">
+          <span class="empire-label">Rango</span>
+          <strong class="empire-value" id="empireRank">Novato de Suelo</strong>
+          <span class="empire-sub" id="empireRankSub">nivel 1 · 0 XP</span>
+        </div>
+        <div class="empire-card">
+          <span class="empire-label">Tasa de victorias</span>
+          <strong class="empire-value mono" id="empireWinRate">—</strong>
+          <span class="empire-sub" id="empireWinRateSub">0 operaciones cerradas</span>
+        </div>
+        <div class="empire-card">
+          <span class="empire-label">Mejor operación</span>
+          <strong class="empire-value mono pos" id="empireBestTrade">$0.00</strong>
+          <span class="empire-sub">ganancia realizada más alta</span>
+        </div>
+        <div class="empire-card">
+          <span class="empire-label">Factor de beneficios</span>
+          <strong class="empire-value mono" id="empireProfitFactor">—</strong>
+          <span class="empire-sub">ganancia bruta ÷ pérdida bruta</span>
+        </div>
+        <div class="empire-card">
+          <span class="empire-label">Operaciones totales</span>
+          <strong class="empire-value mono" id="empireTotalTrades">0</strong>
+          <span class="empire-sub">compras + ventas registradas</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head panel-head-static"><span>⭐ Tu lista de seguimiento</span></div>
+        <div class="panel-body panel-body-flush">
+          <div class="mini-rows" id="watchlistRows"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="workspace" id="viewTrading">
+
+      
+      <section class="col col-left">
+
+        <div class="panel panel-grow">
+          <button class="panel-head" data-collapse>
+            <span>Vista del mercado</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body panel-body-flush">
+            <div class="sector-chip-row" id="sectorChipRow" title="Desliza para ver todos los sectores"></div>
+            <div class="market-index" id="marketIndex" title="Índice compuesto del piso"></div>
+            <div class="market-table" id="marketTable">
+              <div class="market-head">
+                <span></span><span>Símbolo</span><span>Último</span><span>Cambio</span><span>%</span>
+              </div>
+              <div class="market-rows" id="marketRows"></div>
+            </div>
+            <button class="heatmap-open" id="heatmapOpenBtn" title="Mapa de calor del mercado">🔥 Mapa de calor</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <button class="panel-head" data-collapse>
+            <span>Resumen del activo</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body">
+            <div class="quote-block">
+              <div class="quote-price">
+                <span class="mono" id="quotePrice">230.70</span>
+                <span class="quote-currency">USD</span>
+              </div>
+              <div class="quote-change pos" id="quoteChange">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14 M5 12l7-7 7 7"/></svg>
+                <span class="mono">+1.39</span>
+                <span class="mono">(+0.60%)</span>
+              </div>
+              <div class="quote-symbol">AAPL <span>·</span> Apple Inc.</div>
+              <div class="quote-settle">
+                <span class="settle-chip" id="settleChip" title="Referencia que se fija cada 2 días de juego">ajuste 02:00</span>
+                <span class="mono settle-live" id="quoteLive">ajuste 230.70</span>
+              </div>
+            </div>
+            <div class="quote-grid">
+              <div><span>Apertura</span><strong class="mono" id="statOpen">229.75</strong></div>
+              <div><span>Cierre ant.</span><strong class="mono" id="statPrevClose">229.31</strong></div>
+              <div><span>Máximo</span><strong class="mono pos" id="statHigh">230.70</strong></div>
+              <div><span>Mínimo</span><strong class="mono neg" id="statLow">228.26</strong></div>
+              <div><span>Acciones en cartera</span><strong class="mono" id="statSharesOwned">0</strong></div>
+              <div><span>Precio promedio</span><strong class="mono" id="statAvgPrice">—</strong></div>
+            </div>
+            <div class="quote-profile" id="quoteProfile">
+              <div class="profile-tags" id="profileTags"></div>
+              <p class="profile-note mono" id="profileNote"></p>
+            </div>
+
+            <div class="price-alert-box" id="priceAlertBox">
+              <div class="price-alert-head">
+                <span>🔔 Alerta de precio</span>
+                <span class="mono" id="priceAlertCount"></span>
+              </div>
+              <div class="dividend-chip mono" id="dividendChip" title="próximo dividendo de esta empresa" style="display:none"></div>
+              <div class="price-alert-form">
+                <select id="priceAlertDir" title="Cuándo avisar">
+                  <option value="up">sube a</option>
+                  <option value="down">baja a</option>
+                </select>
+                <input type="number" id="priceAlertTarget" class="mono" step="any" min="0" placeholder="precio" inputmode="decimal">
+                <button class="price-alert-add" id="priceAlertAdd">Añadir</button>
+              </div>
+              <div class="price-alert-list" id="priceAlertList"></div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      
+      <section class="col col-center">
+
+        <div class="panel panel-chart">
+          <div class="chart-head">
+            <div class="chart-title">
+              <span class="chart-logo"></span>
+              <strong id="chartTitle">Apple Inc.</strong>
+            </div>
+            <div class="chart-tools">
+              <button class="tool-btn is-active" data-tf="5m">5m</button>
+              <button class="tool-btn" data-tf="15m">15m</button>
+              <button class="tool-btn" data-tf="1h">1h</button>
+              <button class="tool-btn" data-tf="1W">1W</button>
+            </div>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas id="chartCanvas"></canvas>
+            <div class="chart-crosshair-label" id="crosshairLabel"></div>
+          </div>
+          <div class="chart-scrubber">
+            <button class="scrub-btn" id="zoomOut" title="Alejar">−</button>
+            <div class="scrub-track" id="scrubTrack" title="Arrastra para recorrer el historial">
+              <div class="scrub-fill" id="scrubFill"></div>
+            </div>
+            <span class="scrub-count" id="scrubCount">Velas 151–350 de 443</span>
+            <button class="scrub-btn" id="zoomIn" title="Acercar">+</button>
+            <button class="scrub-btn scrub-live" id="scrubLive" title="Volver al precio en vivo" hidden>En vivo</button>
+          </div>
+        </div>
+
+        <div class="split-row split-row-single">
+          <div class="panel">
+            <button class="panel-head" data-collapse>
+              <span>Posiciones</span>
+              <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="panel-body panel-body-flush">
+              <div class="mini-table positions-table">
+                <div class="mini-head">
+                  <span>Símbolo</span><span>Último</span><span>G/P</span><span>Acciones</span><span>Precio prom.</span><span>Invertido</span><span>Cerrar</span>
+                </div>
+                <div class="mini-rows" id="positionsRows">
+                  <div class="mini-empty">Aún no tienes posiciones abiertas.</div>
+                </div>
+              </div>
+              <div class="positions-footer" id="positionsFooter">
+                <div class="positions-footer-pnl">
+                  <span>G/P no realizada</span>
+                  <strong class="mono" id="positionsTotalPnl">$0.00</strong>
+                </div>
+                <span class="positions-hint">Toca una posición para ver su gráfica</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      
+      <section class="col col-right">
+        <div class="panel panel-order">
+          <button class="panel-head" data-collapse>
+            <span>Colocar orden</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body">
+
+            <div class="side-toggle" id="sideToggle">
+              <button class="side-btn side-buy is-active" data-side="buy">Comprar</button>
+              <button class="side-btn side-sell" data-side="sell">Vender</button>
+              <span class="side-glider"></span>
+            </div>
+
+            <label class="field">
+              <span>Cantidad</span>
+              <div class="field-control">
+                <button class="step-btn" data-step="-1">−</button>
+                <input type="number" id="qtyInput" value="0" min="0" inputmode="numeric">
+                <button class="step-btn" data-step="1">+</button>
+              </div>
+            </label>
+
+            <div class="quick-pct-row" id="pctRow">
+              <button class="pct-btn" data-pct="5">5%</button>
+              <button class="pct-btn" data-pct="10">10%</button>
+              <button class="pct-btn" data-pct="25">25%</button>
+              <button class="pct-btn" data-pct="50">50%</button>
+              <button class="pct-btn" data-pct="100">100%</button>
+            </div>
+
+            <label class="field">
+              <span>Precio (en vivo)</span>
+              <div class="field-control field-static">
+                <span class="mono" id="priceField">$0.00</span>
+              </div>
+            </label>
+
+            <div class="order-summary">
+              <div><span id="costLabel">Costo estimado</span><strong class="mono" id="estCost">$0.00</strong></div>
+              <div id="marginRow" style="display:none"><span>Margen requerido</span><strong class="mono" id="estMargin">$0.00</strong></div>
+              <div><span>Comisión</span><strong class="mono">$0.00</strong></div>
+            </div>
+
+            
+            <button class="submit-btn" id="submitOrder">
+              <span id="submitLabel">Comprar AAPL</span>
+            </button>
+
+            <div class="order-divider"><span>Avanzado</span></div>
+
+            <div class="field" id="orderKindField">
+              <span>Tipo de orden</span>
+              <div class="kind-row" id="kindRow">
+                <button class="kind-btn is-active" data-kind="market">Mercado</button>
+                <button class="kind-btn" data-kind="limit">Limit</button>
+                <button class="kind-btn" data-kind="stop">Stop</button>
+              </div>
+              <p class="kind-hint" id="orderKindHint">Se ejecuta ahora al precio de la cinta.</p>
+            </div>
+
+            <label class="field" id="limitPriceField" style="display:none">
+              <span>Precio de la orden</span>
+              <div class="field-control">
+                <input type="text" id="limitPriceInput" placeholder="precio de disparo">
+              </div>
+            </label>
+
+            <div class="field" id="leverageField">
+              <span>Apalancamiento</span>
+              <div class="lev-row" id="levRow">
+                <button class="lev-btn is-active" data-lev="1">x1</button>
+                <button class="lev-btn" data-lev="5">x5</button>
+                <button class="lev-btn" data-lev="10">x10</button>
+                <button class="lev-btn" data-lev="20">x20</button>
+              </div>
+            </div>
+
+            <div class="field-pair" id="tpSlFields">
+              <label class="field">
+                <span>Take profit</span>
+                <div class="field-control">
+                  <input type="text" id="tpInput" placeholder="precio o %">
+                </div>
+              </label>
+              <label class="field">
+                <span>Stop loss</span>
+                <div class="field-control">
+                  <input type="text" id="slInput" placeholder="precio o %">
+                </div>
+              </label>
+            </div>
+
+            <label class="field" id="trailField">
+              <span>Trailing stop</span>
+              <div class="field-control">
+                <input type="text" id="trailInput" placeholder="% detrás del máximo">
+              </div>
+            </label>
+
+            <div class="resting-orders" id="restingOrders">
+              <div class="resting-empty">Sin órdenes en espera. Coloca una limit o stop y se ejecuta sola.</div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="panel panel-book">
+          <button class="panel-head" data-collapse>
+            <span>Profundidad de mercado</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body panel-body-flush">
+            <div class="order-book" id="orderBook" aria-label="Profundidad de mercado">
+              <div class="ob-empty">Cargando profundidad…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-quest">
+          <button class="panel-head" data-collapse>
+            <span>Misiones diarias</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body">
+            <div class="quest-row">
+              <div class="quest-check"></div>
+              <div class="quest-copy">
+                <strong>Realiza tu primera compra</strong>
+                <span>Compra cualquier acción del mercado</span>
+              </div>
+              <span class="quest-reward mono">+50 XP</span>
+            </div>
+            <div class="quest-row">
+              <div class="quest-check"></div>
+              <div class="quest-copy">
+                <strong>Diversifica</strong>
+                <span>Ten posiciones en 3 símbolos distintos</span>
+              </div>
+              <span class="quest-reward mono">+120 XP</span>
+            </div>
+            <div class="quest-row is-done">
+              <div class="quest-check"><svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></div>
+              <div class="quest-copy">
+                <strong>Entra al simulador</strong>
+                <span>Abre el terminal de trading</span>
+              </div>
+              <span class="quest-reward mono">+10 XP</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <button class="panel-head" data-collapse>
+            <span>Estadísticas de cuenta</span>
+            <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="panel-body">
+            <div class="acct-stats-grid">
+              <div class="acct-stat">
+                <span>Tasa de victorias</span>
+                <strong class="mono" id="acctWinRate">—</strong>
+              </div>
+              <div class="acct-stat">
+                <span>Mejor operación</span>
+                <strong class="mono pos" id="acctBestTrade">$0.00</strong>
+              </div>
+              <div class="acct-stat">
+                <span>Operaciones totales</span>
+                <strong class="mono" id="acctTotalTrades">0</strong>
+              </div>
+              <div class="acct-stat">
+                <span>Factor de beneficios</span>
+                <strong class="mono" id="acctProfitFactor">—</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  
+  <div class="nav-modal-overlay" id="navModalOverlay">
+    <div class="nav-modal">
+      <div class="nav-modal-head">
+        <h3 id="navModalTitle">Título</h3>
+        <button class="nav-modal-close" id="navModalClose">✕</button>
+      </div>
+      <div class="nav-modal-body" id="navModalBody"></div>
+    </div>
+  </div>
+</div>
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-head">
+      <div class="auth-mark">◆</div>
+      <div>
+        <h2>Bolsa · Trading Floor</h2>
+        <p>mercado en tiempo real · guarda tus estadísticas</p>
+      </div>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab is-active" data-auth-tab="login" type="button">Iniciar sesión</button>
+      <button class="auth-tab" data-auth-tab="register" type="button">Crear cuenta</button>
+    </div>
+
+    <form class="auth-form" id="authForm" autocomplete="off">
+      <label class="auth-field">
+        <span>Nombre</span>
+        <input id="authName" name="name" type="text" minlength="3" maxlength="24" placeholder="haddhakjhwdb" required>
+      </label>
+      <label class="auth-field">
+        <span>Contraseña</span>
+        <input id="authPassword" name="password" type="password" minlength="6" maxlength="128" placeholder="••••••••" required>
+      </label>
+      <label class="auth-field" id="authConfirmField">
+        <span>Repite la contraseña</span>
+        <input id="authConfirm" type="password" minlength="6" maxlength="128" placeholder="••••••••">
+      </label>
+      <div class="auth-error" id="authError"></div>
+      <button class="auth-submit" id="authSubmit" type="submit">Iniciar sesión</button>
+    </form>
+
+    <div class="auth-foot">
+      <button class="auth-link" id="authGuest" type="button">Jugar sin cuenta</button>
+      <span class="auth-note">las contraseñas se guardan con hash scrypt + salt</span>
+    </div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/boot.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/catalog.js"></script>
+<script src="js/news-copy.js"></script>
+<script src="js/history-cache.js"></script>
+<script src="js/state.js"></script>
+<script src="js/net.js"></script>
+<script src="js/market.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/order.js"></script>
+<script src="js/portfolio.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/research.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/achievements.js"></script>
+<script src="js/leaderboard.js"></script>
+<script src="js/cases.js"></script>
+<script src="js/events.js"></script>
+<script src="js/price-alerts.js"></script>
+<script src="js/orderbook.js"></script>
+<script src="js/bank.js"></script>
+<script src="js/casino.js"></script>
+<script src="js/polls.js"></script>
+<script src="js/heatmap.js"></script>
+<script src="js/onboarding.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
