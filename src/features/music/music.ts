@@ -407,12 +407,20 @@ export function spotifyEmbedUrl(kind: SpotifyKind, id: string): string {
 // innertube (sin credenciales), spotify por su Web API (con credenciales). Los
 // resultados llevan su propia fuente para que al pulsarlos se reproduzca en el
 // embed correcto, y no en el que esté marcado en ese momento.
+//
+// cada llamada lleva un token: el buscador se dispara con cada tecla, asi que
+// una respuesta lenta de una busqueda vieja llegaba DESPUES de una nueva y le
+// pisaba los resultados ("escribo rapido y veo lo de antes"). solo la ultima
+// peticion puede escribir los signals; las anteriores se descartan al resolver.
+let searchRequestSeq = 0;
+
 export async function searchMusic(
   query: string,
   source: MusicSource = musicSourceSignal.value,
 ): Promise<void> {
   const q = query.trim();
   if (!q) return;
+  const token = ++searchRequestSeq;
   searchStateSignal.value = "loading";
   try {
     const res = await fetch(
@@ -423,6 +431,7 @@ export async function searchMusic(
       failed?: boolean;
       results?: SearchResult[];
     };
+    if (token !== searchRequestSeq) return; // llego tarde: manda la ultima
     // tres desenlaces distintos y con remedio distinto: faltan (o son erroneas)
     // las credenciales, fallo pasajero, o no hay resultados. colapsarlos en un
     // "error" o en un "vacio" deja al usuario sin saber que hacer
@@ -441,6 +450,7 @@ export async function searchMusic(
       : [];
     searchStateSignal.value = "done";
   } catch {
+    if (token !== searchRequestSeq) return; // un fallo viejo no pisa a la ultima
     searchResultsSignal.value = [];
     searchStateSignal.value = "error";
   }

@@ -248,4 +248,36 @@ describe("searchMusic", () => {
     await searchMusic("   ", "youtube");
     expect(called).toBe(false);
   });
+
+  // el buscador se dispara con cada tecla: si la respuesta de una consulta
+  // vieja llega despues que la nueva, no puede pisarle los resultados
+  test("una busqueda lenta no pisa a la ultima lanzada", async () => {
+    const resolvers: Array<(payload: unknown) => void> = [];
+    setFetch(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push((payload) =>
+            resolve({ ok: true, json: async () => payload }),
+          );
+        }),
+    );
+    const vieja = searchMusic("vieja", "youtube");
+    const nueva = searchMusic("nueva", "youtube");
+    // la nueva responde primero y gana
+    resolvers[1]?.({
+      results: [
+        { id: "nueva1", title: "nueva", channel: "c", source: "youtube" },
+      ],
+    });
+    await nueva;
+    // la vieja responde despues: debe descartarse
+    resolvers[0]?.({
+      results: [
+        { id: "vieja1", title: "vieja", channel: "c", source: "youtube" },
+      ],
+    });
+    await vieja;
+    expect(searchResultsSignal.value.map((r) => r.id)).toEqual(["nueva1"]);
+    expect(searchStateSignal.value).toBe("done");
+  });
 });
