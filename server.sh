@@ -122,6 +122,23 @@ require_command "$CLOUDFLARED_BIN"
 require_command fuser
 require_command tee
 
+# ------------------------------------------------------------------- systemd
+# Si el stack lo gestiona lyra.service, pararlo ANTES de tocar puertos: si no,
+# nuestro close_ports (fuser -k) mata su stack, systemd lo relanza en 5 s
+# (Restart=always), reclama los puertos y SIGKILLea este bun dev. El cgroup
+# delata si ya corremos DENTRO de la unidad; pararla ahi seria suicidarse.
+if ! grep -qa "lyra\.service" /proc/self/cgroup 2>/dev/null \
+  && command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user is-active --quiet lyra.service 2>/dev/null; then
+  log "lyra.service esta activo (stack de systemd): parando la unidad antes de tomar los puertos"
+  systemctl --user stop lyra.service 2>/dev/null || true
+  # con KillMode=control-group systemd desmonta el cgroup un instante despues
+  for ((attempt = 1; attempt <= 50; attempt += 1)); do
+    systemctl --user is-active --quiet lyra.service 2>/dev/null || break
+    sleep 0.1
+  done
+fi
+
 log "closing application and TURN ports"
 close_ports
 close_firewall
