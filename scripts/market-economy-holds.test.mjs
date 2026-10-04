@@ -462,6 +462,43 @@ describe("la ruleta de cajas no se puedeiablear desde el navegador", () => {
     expect(catalog.cases.map((c) => c.id)).toEqual(Object.keys(CASES));
     expect(catalog.cases.every((c) => c.cost === CASES[c.id].cost)).toBe(true);
   });
+
+  // el exploit del opencase: el cliente guardaba el inventario con un value
+  // propio y 'sell' pagaba TAL CUAL ese valor (hasta 1e12). un save editado a
+  // mano pasaba de 10.000 a mil millones con una venta. ahora el value se
+  // recorta al rango legítimo de la caja al guardar y al vender.
+  test("un inventario con value inflado no acuña cash al venderlo", async () => {
+    const skins = {
+      seq: 1,
+      inventory: [{
+        id: "sk-hack", caseId: "barrio", rarity: "gold",
+        item: "\u2605 Karambit | Freehand", wear: "FN", stattrak: false,
+        value: 1e9, at: Date.now(),
+      }],
+      stats: { opened: 0, spent: 0, earned: 0 },
+      trades: { sent: [], received: [] },
+    };
+    const saved = await fetch(`${baseUrl}/api/market/me`, {
+      method: "PUT",
+      headers: auth,
+      body: JSON.stringify({ portfolio: {}, skins }),
+    });
+    expect(saved.status).toBe(200);
+
+    const before = await me();
+    const sold = await fetch(`${baseUrl}/api/market/skins`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ action: "sell", itemId: "sk-hack" }),
+    }).then((r) => r.json());
+    expect(sold.ok).toBe(true);
+
+    const after = await me();
+    const delta = after.portfolio.cash - before.portfolio.cash;
+    // el tope legítimo de barrio/gold/FN es de decenas de miles, no mil millones
+    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeLessThan(100_000);
+  });
 });
 
 describe("la bancarrota la aplica el servidor, no el autoguardado", () => {
