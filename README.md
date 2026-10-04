@@ -7,6 +7,7 @@
 - [truffled](https://truffled.lol/) - game source
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 - [sapphire](https://github.com/x8rr/sapphire) - rivet's base
+- [gayq/lyra](https://github.com/gayq/lyra) - base del proyecto
 
 ## license
 this project is licensed under [GNU AGPLv3](./LICENSE)
