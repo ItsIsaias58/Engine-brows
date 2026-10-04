@@ -7,6 +7,7 @@ import {
   POSITIVE,
 } from "../runtime/messages";
 import { runtimeAssetPath, wispPath } from "../runtime/build.ts";
+import { transportAttemptOrder } from "./transportOrder.ts";
 
 type ConnectionState =
   | "IDLE"
@@ -255,26 +256,43 @@ class LyraConnectionManager {
     return options;
   }
 
-  async _reapplyTransport(): Promise<boolean> {
+  // aplica el transporte elegido y, si no verifica, prueba el otro antes de
+  // rendirse (epoxy roto en un entorno → libcurl entra solo). el que funcione
+  // queda como transporte activo de la sesion.
+  async _applyTransportWithFallback(): Promise<boolean> {
     if (!this.bareMuxConnection) return false;
-    try {
-      const transportModule = TRANSPORT_MAP[this.appConfig.transport];
-      if (!transportModule) return false;
-
-      await this.bareMuxConnection.setTransport(transportModule, [
-        this._transportOptions(),
-      ]);
-
-      const verified = await this._verifyTransport();
-      if (verified) {
-        this._resolveTransportReady();
-        return true;
+    const order = transportAttemptOrder(this.appConfig.transport);
+    for (const name of order) {
+      const transportModule = TRANSPORT_MAP[name];
+      if (!transportModule) continue;
+      this.appConfig.transport = name;
+      try {
+        await this.bareMuxConnection.setTransport(transportModule, [
+          this._transportOptions(),
+        ]);
+        if (await this._verifyTransport()) {
+          if (name !== order[0]) {
+            this.updateStatus(`usando transporte ${name}...`, "info");
+            console.warn(
+              `transport "${order[0]}" no respondió; se usa "${name}"`,
+              NEGATIVE,
+            );
+          }
+          return true;
+        }
+      } catch (e) {
+        console.warn(`transport "${name}" failed:`, e, NEGATIVE);
       }
-      return false;
-    } catch (e) {
-      console.error("failed to reapply transport:", e, NEGATIVE);
-      return false;
     }
+    return false;
+  }
+
+  async _reapplyTransport(): Promise<boolean> {
+    // la recuperacion tambien acepta el otro transporte: si el que estaba en uso
+    // se cayo y no vuelve, no tiene sentido insistir solo con el
+    const recovered = await this._applyTransportWithFallback();
+    if (recovered) this._resolveTransportReady();
+    return recovered;
   }
 
   async initializeApp(isRetry: boolean = false): Promise<boolean | undefined> {
@@ -330,18 +348,11 @@ class LyraConnectionManager {
         });
       }
 
-      const transportModule = TRANSPORT_MAP[this.appConfig.transport];
-      if (!transportModule) {
-        throw new Error(negativeMessage(`unknown transport: ${this.appConfig.transport}`));
-      }
-
-      await this.bareMuxConnection.setTransport(transportModule, [
-        this._transportOptions(),
-      ]);
-
-      const transportVerified = await this._verifyTransport();
+      const transportVerified = await this._applyTransportWithFallback();
       if (!transportVerified) {
-        throw new Error(negativeMessage("transport verification failed after setup"));
+        throw new Error(
+          negativeMessage("ningún transporte pudo establecerse (epoxy y libcurl fallaron)"),
+        );
       }
 
       const serviceWorker =
