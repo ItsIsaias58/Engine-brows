@@ -722,31 +722,61 @@
       } catch { SFX[k] = null; }
     }
   }
-  // cada clon es un nodo de audio NUEVO y playSfx no lo parah nunca: al vender
-  // en bucle se apilaban decenas de copias del mismo jingle sonando a la vez
-  // (el "bucle que molesta"). no cambia que suene ni cuando: solo que, al
-  // superar el tope, se corta la copia mas vieja en vez de sumar otra encima.
+  // tope de voces: al superar el maximo se corta la copia mas vieja en vez de
+  // sumar otra encima. (antes se llamaba oldest.stop(), metodo que NO existe en
+  // HTMLAudioElement: el catch se lo tragaba, la copia seguia sonando y solo se
+  // dejaba de rastrear; de ahi el "loop" al vender rapido.)
   const MAX_SFX_VOICES = 6;
   const sfxVoices = [];
+  // los .ogg traen mas de lo que este juego necesita: chain.ogg es un tren de
+  // ~10 clinks (13 s) y cheer.ogg una porra de 129 s. cada sfx se recorta a su
+  // trozo util [inicio, duracion] en segundos, para que suene UNA vez (un solo
+  // golpe metalico al vender, una porra corta al sacar cuchillo) y no arrastre
+  // repeticiones ni minutos de fondo.
+  const SFX_WINDOW = {
+    win: [1.85, 1.30],   // la fanfarria arranca tras ~1.9 s de silencio
+    cheer: [2.30, 2.60], // la porra real (el .ogg es ambiente de 129 s)
+    chain: [0.00, 0.45], // primer golpe metalico, no los 10 del archivo
+    low: [0.55, 1.45],   // el .ogg arranca en silencio
+    lose: [1.50, 0.90],
+    crash: [0.00, 2.25],
+  };
+  const lastSfxAt = Object.create(null);
+
+  function stopVoice(a) {
+    try { a.pause(); } catch {}
+    try { a.currentTime = 0; } catch {}
+  }
+
   function playSfx(name, vol = 0.4) {
     try {
       const base = SFX[name];
       if (!base) return;
-      // clon para permitir solaparse (dos victorias seguidas, etc.)
+      const window_ = SFX_WINDOW[name] || [0, 1.2];
+      const [start, dur] = window_;
+      // no auto-solape: mientras la copia del mismo sfx sigue viva, no se
+      // relanza otra (vender en rafaga daba el efecto "loop loop loop").
+      const now = performance.now();
+      const last = lastSfxAt[name];
+      if (last !== undefined && now - last < dur * 1000) return;
+      lastSfxAt[name] = now;
+      // clon para permitir solaparse con OTROS sfx (dos victorias seguidas, etc.)
       const a = base.cloneNode();
       a.volume = vol;
-      while (sfxVoices.length >= MAX_SFX_VOICES) {
-        const oldest = sfxVoices.shift();
-        try { oldest.stop(); } catch {}
-      }
+      while (sfxVoices.length >= MAX_SFX_VOICES) stopVoice(sfxVoices.shift());
       const release = () => {
         const i = sfxVoices.indexOf(a);
         if (i >= 0) sfxVoices.splice(i, 1);
+        clearTimeout(a.__lyraStop);
       };
       a.addEventListener("ended", release);
       a.addEventListener("error", release);
       sfxVoices.push(a);
+      const seek = () => { try { a.currentTime = start; } catch {} };
+      if (a.readyState >= 1) seek();
+      else a.addEventListener("loadedmetadata", seek, { once: true });
       a.play().catch(release);
+      a.__lyraStop = setTimeout(() => { stopVoice(a); release(); }, Math.round(dur * 1000) + 40);
     } catch {}
   }
 
