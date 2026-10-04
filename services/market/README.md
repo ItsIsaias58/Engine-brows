@@ -24,6 +24,7 @@ Environment:
 | `MARKET_DATA_DIR`   | `services/market/data` | where the json files are written |
 | `MARKET_HISTORY_DELAY_MS` | `15000`        | how often the rolling history files are written |
 | `MARKET_ADMIN_NAMES`| *(empty)*          | comma separated account names allowed to open the **remote** admin console (the deploy-time half of the allow-list) |
+| `JWT_SECRET`        | *(empty)*          | the same secret cloudsync signs its session JWT with. when set, the market also accepts that JWT (cookie `token`) as a session, resolving/provisioning the market account by username (SSO). unset = SSO off, own accounts only |
 
 ## where everything lives
 

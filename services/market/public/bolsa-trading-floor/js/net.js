@@ -14,6 +14,9 @@ let marketAccountName = '';
 // the console knows whether it may open at all
 let marketAccount = null;
 let marketGuest = false;
+// SSO con cloudsync: hay sesión de mercado sin token local, porque el servidor
+// autentica con el JWT de la nube que viaja en la cookie del handshake
+let marketSso = false;
 let marketSocket = null;
 let marketSocketReady = false;
 let marketReconnectTimer = null;
@@ -61,15 +64,21 @@ try {
   marketGuest = localStorage.getItem(MARKET_GUEST_KEY) === '1';
 } catch (e) {}
 
+// hay sesión si hay token de mercado o si el servidor nos autenticó por la
+// sesión de cloudsync (marketSso, resuelta por restoreSession)
+function hasSession() {
+  return Boolean(marketToken) || marketSso;
+}
+
 const MarketNet = {
   get token() { return marketToken; },
   get accountName() { return marketAccountName; },
-  get isGuest() { return marketGuest && !marketToken; },
-  get signedIn() { return Boolean(marketToken); },
+  get isGuest() { return marketGuest && !hasSession(); },
+  get signedIn() { return hasSession(); },
   get account() { return marketAccount; },
   // only an account the server marked as admin may open the remote console; the
   // game console still works in local mode without it (see js/admin.js)
-  get isAdmin() { return Boolean(marketToken && marketAccount && marketAccount.admin === true); },
+  get isAdmin() { return Boolean(hasSession() && marketAccount && marketAccount.admin === true); },
   get live() {
     return marketSocketReady && Date.now() - marketLastTickAt < marketTickIntervalMs * 3;
   },
@@ -108,6 +117,7 @@ const MarketNet = {
     marketAccountName = name || '';
     marketAccount = account || null;
     marketGuest = false;
+    marketSso = false;
     // server-authoritative money: the epoch the server stamped on this account
     // (bumped on every admin grant/reset). saves carry it; a stale save is refused.
     marketPortfolioEpoch = (account && account.portfolioEpoch) || 0;
@@ -136,6 +146,7 @@ const MarketNet = {
     marketToken = '';
     marketAccountName = '';
     marketAccount = null;
+    marketSso = false;
     marketLastSavedSignature = '';
     try {
       localStorage.removeItem(MARKET_TOKEN_KEY);
@@ -146,8 +157,31 @@ const MarketNet = {
 
   continueAsGuest() {
     marketGuest = true;
+    // elegir invitado a mano descarta el SSO: el usuario pidió no usar cuenta
+    marketSso = false;
     try { localStorage.setItem(MARKET_GUEST_KEY, '1'); } catch (e) {}
     notifySessionChange();
+  },
+
+  // SSO con cloudsync: si no hay token de mercado pero sí una sesión de la nube
+  // (el servidor la ve en la cookie del handshake), este probe la descubre y
+  // adopta la cuenta. sin sesión de nube no cambia nada: el login de siempre
+  // sigue igual. nunca manda Authorization; la cookie viaja sola.
+  async restoreSession() {
+    if (marketToken) return true;
+    try {
+      const payload = await this.request('/api/market/me');
+      if (payload && payload.account) {
+        marketSso = true;
+        marketAccount = payload.account;
+        marketAccountName = payload.account.name || '';
+        marketPortfolioEpoch = payload.account.portfolioEpoch || 0;
+        notifySessionChange();
+        return true;
+      }
+    } catch (e) { /* sin sesión de nube: seguimos como antes */ }
+    marketSso = false;
+    return false;
   },
 
   async request(path, options = {}) {
@@ -259,7 +293,7 @@ const MarketNet = {
   // ventas, tradeos) aterriza acá en tiempo real — el usuario pidió que la
   // verificación de activos entre ambos juegos corra cada segundo
   async resyncFromServer() {
-    if (!marketToken) return;
+    if (!hasSession()) return;
     // hay operaciones optimistas sin enviar: primero se liquidan, o el resync
     // las borraría de la cartera y la operación aparecería y desaparecería
     if (marketPendingOps.length || marketInFlightOps.length) {
@@ -283,7 +317,7 @@ const MarketNet = {
   },
 
   savePortfolio() {
-    if (!marketToken) return;
+    if (!hasSession()) return;
     if (marketSaveTimer) return;
     marketSaveTimer = setTimeout(() => {
       marketSaveTimer = null;
@@ -295,7 +329,7 @@ const MarketNet = {
   // adopta la cartera del servidor (el efectivo puede haber cambiado por
   // dividends, intereses, órdenes ejecutadas o la recapitalización)
   flushPortfolio() {
-    if (!marketToken) return Promise.resolve(null);
+    if (!hasSession()) return Promise.resolve(null);
     const ops = marketDrainOps();
     const portfolio = marketPortfolioSnapshot();
     // the game saves every couple of seconds even when nothing happened, and

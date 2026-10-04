@@ -85,6 +85,7 @@ import {
   sanitizePortfolio,
   sanitizeProfile,
 } from './accounts.mjs';
+import { resolveSsoAccount, sessionTokenFromRequest, verifySessionToken } from './sso.mjs';
 import { createJsonStore } from './store.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -196,6 +197,12 @@ export function createMarketServer(options = {}) {
   // mutable on purpose: the admin console can re-time the market at runtime
   let tickMs = clampTickMs(options.tickMs ?? process.env.MARKET_TICK_MS);
   const dataDir = options.dataDir ?? process.env.MARKET_DATA_DIR ?? path.join(HERE, 'data');
+
+  // SSO con cloudsync: el mercado acepta el mismo JWT que firma cloudsync como
+  // segunda vía de sesión. el secreto es el de cloudsync; sin él el SSO queda
+  // apagado y solo funciona el registro propio de siempre (aditivo, no rompe
+  // nada ni debilita una sesión existente).
+  const ssoSecret = options.ssoSecret ?? process.env.JWT_SECRET ?? '';
 
   // who may open the remote console. two sources, so a grant does not depend on
   // remembering an environment variable on every restart:
@@ -336,8 +343,22 @@ export function createMarketServer(options = {}) {
     }
   }
 
+  // cuenta por token de mercado, o si no la hay por el JWT de cloudsync de la
+  // cookie `token`. devuelve { account, created }.
+  function resolveRequestAccount(req, marketToken) {
+    const byToken = authenticate(accounts, marketToken);
+    if (byToken) return { account: byToken, created: false };
+    if (!ssoSecret) return { account: null, created: false };
+    const claims = verifySessionToken(sessionTokenFromRequest(req), ssoSecret);
+    if (!claims) return { account: null, created: false };
+    const resolved = resolveSsoAccount(accounts, claims.username);
+    return resolved ?? { account: null, created: false };
+  }
+
   function authenticatedAccount(req) {
-    return authenticate(accounts, bearerToken(req));
+    const { account, created } = resolveRequestAccount(req, bearerToken(req));
+    if (account && created) persistAccounts();
+    return account;
   }
 
   function rateLimited(req, server) {
@@ -1671,8 +1692,18 @@ export function createMarketServer(options = {}) {
 
     if (pathname === '/ws/market') {
       const token = socketToken(req, url);
+      // el socket nace autorizado si trae sesión de mercado O el JWT de
+      // cloudsync: así el SSO no depende de que el cliente del juego sepa leer
+      // una cookie httpOnly que nunca debió poder leer.
+      const { account, created } = resolveRequestAccount(req, token);
+      if (account && created) persistAccounts();
       const upgraded = server.upgrade(req, {
-        data: { token, authorized: Boolean(authenticate(accounts, token)) },
+        data: {
+          token,
+          authorized: Boolean(account),
+          accountName: account ? account.name : null,
+          sso: Boolean(account) && !authenticate(accounts, token),
+        },
       });
       if (upgraded) return undefined;
       return new Response('websocket upgrade failed', { status: 400 });
@@ -1730,11 +1761,22 @@ export function createMarketServer(options = {}) {
           return;
         }
         if (!payload || typeof payload !== 'object') return;        if (payload.type === 'auth') {
+          // un socket ya autorizado por SSO (cookie en el handshake) no se
+          // desautoriza con un frame de auth vacío: el juego manda su token de
+          // mercado, no lo tiene, y sin esta guarda el SSO se caería al
+          // conectar y reconectar.
+          if (socket.data.sso && !String(payload.token || '')) {
+            socket.send(JSON.stringify({ type: 'auth', ok: true }));
+            return;
+          }
           const authenticated = authenticate(accounts, payload.token);
           socket.data.authorized = Boolean(authenticated);
+          socket.data.sso = false;
           if (authenticated) {
             const account = accounts.accounts[accountKey(authenticated.name)];
             socket.data.accountName = account ? account.name : null;
+          } else {
+            socket.data.accountName = null;
           }
           socket.send(JSON.stringify({ type: 'auth', ok: socket.data.authorized }));
           return;

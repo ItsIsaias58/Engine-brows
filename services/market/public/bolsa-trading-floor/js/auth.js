@@ -170,7 +170,7 @@ function onMarketSessionChange() {
   if (typeof maybeMountAdminButton === 'function') maybeMountAdminButton();
 }
 
-function initAuth() {
+async function initAuth() {
   const overlay = document.getElementById('authOverlay');
   const form = document.getElementById('authForm');
   if (!overlay || !form) return;
@@ -210,6 +210,11 @@ function initAuth() {
   // the market feed itself is public, so connect no matter what so prices keep
   // moving in the background while the player decides about an account
   MarketNet.connect();
+
+  // SSO con cloudsync: si hay sesión de la nube sin token de mercado, se adopta
+  // (el servidor ya nos autentica por la cookie) antes de decidir si abrir el
+  // modal. sin sesión de nube no hace nada y el flujo de login no cambia.
+  await MarketNet.restoreSession();
 
   if (MarketNet.signedIn) {
     refreshAccountFromServer();

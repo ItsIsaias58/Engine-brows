@@ -60,14 +60,14 @@
 
   // ---------------------------------------------------------------- estado
 
-  const session = { token: "", name: "", guest: false, cash: 0 };
+  const session = { token: "", name: "", guest: false, cash: 0, sso: false };
   let catalog = { cases: {}, rarities: {}, wears: [], stattrak: { chance: 0.1, mult: 1.5 } };
   let inventory = [];
   let stats = { opened: 0, spent: 0, earned: 0 };
   let currentCase = null;
   let spinning = false;
 
-  const signedIn = () => Boolean(session.token);
+  const signedIn = () => Boolean(session.token) || session.sso;
 
   // ---------------------------------------------------------------- api
 
@@ -94,6 +94,7 @@
     session.token = localStorage.getItem(TOKEN_KEY) || "";
     session.name = localStorage.getItem(NAME_KEY) || "";
     session.guest = localStorage.getItem(GUEST_KEY) === "1";
+    session.sso = false;
   }
 
   function storeSharedSession(token, name) {
@@ -161,6 +162,21 @@
         storeSharedSession("", "");
       }
     }
+    // SSO con cloudsync: sin token de mercado, el server igual puede
+    // autenticarnos por la sesión de la nube (cookie del handshake). probamos
+    // /me; si contesta con una cuenta, entramos sin pedir login. si no hay
+    // sesión de nube, el catch nos deja en el gate de siempre.
+    if (!session.guest) {
+      try {
+        const me = await api("/me");
+        if (me && me.account) {
+          session.sso = true;
+          session.name = me.account.name || "";
+          await enterApp();
+          return;
+        }
+      } catch { /* sin sesión de nube: seguimos al gate */ }
+    }
     showGate();
   }
 
@@ -198,6 +214,7 @@
       session.token = r.token;
       session.name = r.account.name;
       session.guest = false;
+      session.sso = false; // un login de mercado manda sobre el SSO de la nube
       // guardar en las claves de la bolsa: allí la sesión ya está lista
       storeSharedSession(r.token, r.account.name);
       $("authOverlay").classList.remove("is-visible");
@@ -1330,6 +1347,7 @@
     $("gateGuest").onclick = () => {
       try { localStorage.setItem(GUEST_KEY, "1"); } catch {}
       session.guest = true;
+      session.sso = false;
       session.name = "invitado";
       session.cash = guestCash();
       enterApp();

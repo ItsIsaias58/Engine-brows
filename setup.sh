@@ -1452,6 +1452,33 @@ CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
 log "memory restart thresholds — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, isao: $ISAO_MEM"
 
+# los secretos se leen/crean ANTES de generar el ecosystem: así el proceso del
+# mercado hereda JWT_SECRET y puede verificar el JWT de cloudsync (SSO)
+if [ ! -f .env ]; then
+  JWT_SECRET=$(openssl rand -hex 64)
+  SYNC_SECRET=$(openssl rand -hex 32)
+  echo "JWT_SECRET=$JWT_SECRET" >.env
+  echo "SYNC_SECRET=$SYNC_SECRET" >>.env
+  chmod 600 .env
+else
+  if ! grep -q "JWT_SECRET" .env; then
+    JWT_SECRET=$(openssl rand -hex 64)
+    echo "" >>.env
+    echo "JWT_SECRET=$JWT_SECRET" >>.env
+  else
+    JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d '=' -f2)
+  fi
+
+  if ! grep -q "SYNC_SECRET" .env; then
+    SYNC_SECRET=$(openssl rand -hex 32)
+    echo "SYNC_SECRET=$SYNC_SECRET" >>.env
+  else
+    SYNC_SECRET=$(grep "^SYNC_SECRET=" .env | cut -d '=' -f2)
+  fi
+fi
+
+chmod 600 .env
+
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
 
@@ -1531,6 +1558,9 @@ tee -a ecosystem.config.cjs >/dev/null <<EOF
         MARKET_HOST: "127.0.0.1",
         MARKET_PORT: "4006",
         MARKET_DATA_DIR: "$ROOT/services/market/data",
+        # SSO con cloudsync: el mercado acepta y verifica el mismo JWT de
+        # sesión que firma cloudsync (mismo secreto) además de su registro
+        JWT_SECRET: "$JWT_SECRET",
         # búsqueda de música en spotify. vacias = solo youtube, que es como
         # funcionaba antes; el menu avisa de que faltan si se elige spotify
         SPOTIFY_CLIENT_ID: "${SPOTIFY_CLIENT_ID:-}",
@@ -1571,31 +1601,6 @@ if command -v ufw >/dev/null 2>&1; then
     sudo ufw allow 49152:65535/udp
   fi
 fi
-
-if [ ! -f .env ]; then
-  JWT_SECRET=$(openssl rand -hex 64)
-  SYNC_SECRET=$(openssl rand -hex 32)
-  echo "JWT_SECRET=$JWT_SECRET" >.env
-  echo "SYNC_SECRET=$SYNC_SECRET" >>.env
-  chmod 600 .env
-else
-  if ! grep -q "JWT_SECRET" .env; then
-    JWT_SECRET=$(openssl rand -hex 64)
-    echo "" >>.env
-    echo "JWT_SECRET=$JWT_SECRET" >>.env
-  else
-    JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d '=' -f2)
-  fi
-
-  if ! grep -q "SYNC_SECRET" .env; then
-    SYNC_SECRET=$(openssl rand -hex 32)
-    echo "SYNC_SECRET=$SYNC_SECRET" >>.env
-  else
-    SYNC_SECRET=$(grep "^SYNC_SECRET=" .env | cut -d '=' -f2)
-  fi
-fi
-
-chmod 600 .env
 
 if [ -d "$ROOT/services/cloudsync" ]; then
   echo "JWT_SECRET=$JWT_SECRET" >"$ROOT/services/cloudsync/.env"
