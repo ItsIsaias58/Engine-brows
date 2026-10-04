@@ -216,7 +216,7 @@ function recordTrade(trades, side, entry) {
 // las ofertas son punteros a skins reales; un save manipulado no puede mintear
 // items: cada skin de "give" se re-valida contra el catálogo y los valores se
 // recalculan de los rangos de la caja, no se aceptan del cliente.
-import { CASES, RARITIES, WEAR_NAMES, defaultSkins } from './skins.mjs';
+import { CASES, RARITIES, WEAR_NAMES, defaultSkins, clampLegitValue } from './skins.mjs';
 
 // garantizar el libro de skins/tradeos de una cuenta (jugadores que nunca
 // abrieron cajas tienen portfolio.skins vacío — pueden tradear igual)
@@ -249,6 +249,8 @@ export function sanitizeTrades(input) {
         const pool = caseDef.pools[String(g.rarity || '')];
         if (!pool || !pool.items.includes(String(g.item))) continue;
         const rarity = RARITIES[String(g.rarity)] || RARITIES.milspec;
+        const wear = WEAR_NAMES[g.wear] ? String(g.wear) : 'FT';
+        const stattrak = g.stattrak === true;
         give.push({
           id: String(g.id || '').slice(0, 24) || `sk-x`,
           caseId: caseDef.id,
@@ -256,10 +258,11 @@ export function sanitizeTrades(input) {
           rarityName: rarity.name,
           color: rarity.color,
           item: String(g.item),
-          wear: WEAR_NAMES[g.wear] ? String(g.wear) : 'FT',
-          wearName: WEAR_NAMES[g.wear] || 'Field-Tested',
-          stattrak: g.stattrak === true,
-          value: Math.min(1e12, Math.max(1, Math.round(Number(g.value) || 0))),
+          wear,
+          wearName: WEAR_NAMES[wear] || 'Field-Tested',
+          stattrak,
+          // el value no se acepta del cliente: se recorta al rango de la caja
+          value: clampLegitValue(g.value, caseDef.id, String(g.rarity), wear, stattrak),
           at: Math.max(0, Math.round(Number(g.at) || Date.now())),
         });
       }

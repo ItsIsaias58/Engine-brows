@@ -49,6 +49,8 @@ import { castVote, openPoll, pollsState, resolveDuePolls, POLL_REWARD } from '..
 import { createJsonStore } from '../services/market/store.mjs';
 import { createMarketServer } from '../services/market/server.mjs';
 import { MARKET_SYMBOLS, profileFor } from '../services/market/companies.mjs';
+import { legitValueRange, sanitizeSkins, skinsAction } from '../services/market/skins.mjs';
+import { sanitizeTrades } from '../services/market/trades.mjs';
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-market-'));
@@ -2798,3 +2800,78 @@ describe('portfolio valuation', () => {
 });
 
 let testTradeId = null;
+
+// regresion del exploit del value: el cliente mandaba un item con caseId /
+// rarity / item reales pero value arbitrario hasta 1e12, y 'sell' pagaba eso
+// (y se propagaba por los trueques). el value se recorta siempre al rango de
+// la caja.
+describe('opencase: el value no se acepta del cliente', () => {
+  const range = legitValueRange('barrio', 'gold', 'FN', false);
+  const craft = (value) =>
+    sanitizeSkins({
+      seq: 1,
+      inventory: [{
+        id: 'sk-x', caseId: 'barrio', rarity: 'gold',
+        item: '\u2605 Karambit | Freehand', wear: 'FN', stattrak: false,
+        value, at: Date.now(),
+      }],
+      stats: {}, trades: {},
+    });
+
+  test('un value inflado se recorta al rango de la caja', () => {
+    expect(range).toEqual({ min: 24300, max: 43200 });
+    expect(craft(1e9).inventory[0].value).toBe(range.max);
+    expect(craft(1).inventory[0].value).toBe(range.min);
+  });
+
+  test('un value legitimo no cambia', () => {
+    const legit = range.min + 7;
+    expect(craft(legit).inventory[0].value).toBe(legit);
+  });
+
+  test('vender paga el value recortado, no el del cliente', () => {
+    const portfolio = { cash: 10_000, skins: craft(1e9) };
+    const sold = skinsAction(portfolio, 'sell', { itemId: 'sk-x' });
+    expect(sold.cash).toBe(10_000 + range.max);
+  });
+
+  test('un inventario legacy con value inflado se limpia al vender', () => {
+    const portfolio = {
+      cash: 10_000,
+      skins: {
+        inventory: [{
+          id: 'sk-y', caseId: 'barrio', rarity: 'gold',
+          item: '\u2605 Karambit | Freehand', wear: 'FN', stattrak: false,
+          value: 1e11, at: Date.now(),
+        }],
+        stats: { opened: 0, spent: 0, earned: 0 }, seq: 1,
+        trades: { sent: [], received: [], seq: 0 },
+      },
+    };
+    const sold = skinsAction(portfolio, 'sell', { itemId: 'sk-y' });
+    expect(sold.cash).toBe(10_000 + range.max);
+  });
+
+  test('sellAll tambien recorta cada item', () => {
+    const portfolio = { cash: 0, skins: craft(1e12) };
+    const sold = skinsAction(portfolio, 'sellAll', {});
+    expect(sold.total).toBe(range.max);
+  });
+
+  test('los trueques recortan el value igual', () => {
+    const trades = sanitizeTrades({
+      seq: 1,
+      sent: [{
+        id: 'tr-x',
+        give: [{
+          id: 'sk-z', caseId: 'barrio', rarity: 'gold',
+          item: '\u2605 Karambit | Freehand', wear: 'FN', stattrak: false,
+          value: 5e9,
+        }],
+        want: [], status: 'pending',
+      }],
+      received: [],
+    });
+    expect(trades.sent[0].give[0].value).toBe(range.max);
+  });
+});

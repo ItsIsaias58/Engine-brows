@@ -126,6 +126,34 @@ function rollItem(caseDef) {
   };
 }
 
+// rango de valor legitimo de un item segun su caja, rareza, desgaste y
+// StatTrak. rollItem() siempre cae dentro; sirve para recortar el value que
+// llega del cliente: antes se aceptaba hasta 1e12 y 'sell' pagaba eso (dinero
+// de la nada) y el bug se propagaba por los trueques.
+export function legitValueRange(caseId, rarityId, wearId, stattrak) {
+  const caseDef = CASES[String(caseId || '')];
+  if (!caseDef) return null;
+  const pool = caseDef.pools[String(rarityId || '')];
+  if (!pool) return null;
+  const wear = WEARS.find((w) => w.id === wearId) || WEARS[2];
+  const st = stattrak === true ? STATTRAK_MULT : 1;
+  const [lo, hi] = pool.mult;
+  return {
+    min: round(Math.max(50, caseDef.cost * lo * wear.mult * st)),
+    max: round(Math.max(50, caseDef.cost * hi * wear.mult * st)),
+  };
+}
+
+// value de un item recortado a su rango legitimo. si la caja/rareza no existen
+// (item desconocido) se mantiene el tope numerico de antes como red de
+// seguridad: el item no deberia llegar aqui, pero no queremos un value absurdo.
+export function clampLegitValue(raw, caseId, rarityId, wearId, stattrak) {
+  const range = legitValueRange(caseId, rarityId, wearId, stattrak);
+  const n = round(Number(raw) || 0);
+  if (!range) return Math.min(1e12, Math.max(1, n));
+  return Math.min(range.max, Math.max(range.min, n));
+}
+
 // acciones del libro de skins. opera directamente sobre el portfolio (cash) y
 // devuelve { ok, ... } como casino.mjs para que el server la trate igual.
 export function skinsAction(portfolio, action, body = {}) {
@@ -172,6 +200,9 @@ export function skinsAction(portfolio, action, body = {}) {
     const idx = book.inventory.findIndex((x) => x.id === String(body.itemId || ''));
     if (idx < 0) return { ok: false, error: 'esa skin no está en tu inventario' };
     const [item] = book.inventory.splice(idx, 1);
+    // recorte defensivo: limpia tambien inventarios ya guardados con el value
+    // manipulado antes de este arreglo.
+    item.value = clampLegitValue(item.value, item.caseId, item.rarity, item.wear, item.stattrak);
     portfolio.cash = round(cash() + item.value);
     book.stats.earned += item.value;
     return { ok: true, sold: item, cash: portfolio.cash };
@@ -181,7 +212,10 @@ export function skinsAction(portfolio, action, body = {}) {
   if (action === 'sellAll') {
     if (!book.inventory.length) return { ok: false, error: 'el inventario ya está vacío' };
     let total = 0;
-    for (const item of book.inventory) total += item.value;
+    for (const item of book.inventory) {
+      item.value = clampLegitValue(item.value, item.caseId, item.rarity, item.wear, item.stattrak);
+      total += item.value;
+    }
     const count = book.inventory.length;
     book.inventory = [];
     portfolio.cash = round(cash() + total);
@@ -244,20 +278,24 @@ export function sanitizeSkins(input) {
       if (!raw || typeof raw !== 'object') continue;
       const caseDef = CASES[String(raw.caseId || '')];
       if (!caseDef) continue;
-      const pool = caseDef.pools[String(raw.rarity || '')];
+      const rarityId = String(raw.rarity || '');
+      const pool = caseDef.pools[rarityId];
       if (!pool) continue;
       const items = pool.items;
+      const wear = WEARS.some((w) => w.id === raw.wear) ? String(raw.wear) : 'FT';
+      const stattrak = raw.stattrak === true;
       out.inventory.push({
         id: String(raw.id || '').slice(0, 24) || `sk-${++out.seq}`,
         caseId: caseDef.id,
-        rarity: String(raw.rarity),
-        rarityName: RARITIES[String(raw.rarity)].name,
-        color: RARITIES[String(raw.rarity)].color,
+        rarity: rarityId,
+        rarityName: RARITIES[rarityId].name,
+        color: RARITIES[rarityId].color,
         item: items.includes(String(raw.item)) ? String(raw.item) : items[0],
-        wear: WEARS.some((w) => w.id === raw.wear) ? String(raw.wear) : 'FT',
-        wearName: (WEARS.find((w) => w.id === raw.wear) || WEARS[2]).name,
-        stattrak: raw.stattrak === true,
-        value: Math.min(1e12, Math.max(1, Math.round(Number(raw.value) || 0))),
+        wear,
+        wearName: (WEARS.find((w) => w.id === wear) || WEARS[2]).name,
+        stattrak,
+        // el value NO se acepta del cliente: se recorta al rango de la caja
+        value: clampLegitValue(raw.value, caseDef.id, rarityId, wear, stattrak),
         at: Math.max(0, Math.round(Number(raw.at) || Date.now())),
       });
     }
