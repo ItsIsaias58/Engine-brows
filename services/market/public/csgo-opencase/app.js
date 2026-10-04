@@ -511,7 +511,7 @@
     try { winJingle(level); } catch {}
     // capa sfx real según el nivel: cadena (classified), win (covert),
     // win + porra de multitud (cuchillo ★). caída mala = deflate.
-    if (level >= 3) { playSfx("win", 0.5); playSfx("cheer", 0.3); }
+    if (level >= 3) playSfx("win", 0.5); // sin porra: sonaba a coro de fondo
     else if (level === 2) playSfx("win", 0.45);
     else if (level === 1) playSfx("chain", 0.4);
     else if ((item.value || 0) < c.cost * 0.25) { playSfx("crash", 0.3); playSfx("low", 0.3); } // caída brutal
@@ -712,7 +712,7 @@
 
   // ---------------------------------------------------------------- sfx reales (ogg precargados)
   // sonidos de la Google Sound Library (uso libre con atribución, ver footer)
-  const SFX = { win: null, cheer: null, chain: null, low: null, lose: null, crash: null };
+  const SFX = { win: null, chain: null, low: null, lose: null, crash: null };
   function preloadSfx() {
     for (const k of Object.keys(SFX)) {
       try {
@@ -728,14 +728,12 @@
   // dejaba de rastrear; de ahi el "loop" al vender rapido.)
   const MAX_SFX_VOICES = 6;
   const sfxVoices = [];
-  // los .ogg traen mas de lo que este juego necesita: chain.ogg es un tren de
-  // ~10 clinks (13 s) y cheer.ogg una porra de 129 s. cada sfx se recorta a su
-  // trozo util [inicio, duracion] en segundos, para que suene UNA vez (un solo
-  // golpe metalico al vender, una porra corta al sacar cuchillo) y no arrastre
-  // repeticiones ni minutos de fondo.
+  // los .ogg traen mas de lo que este juego necesita (chain.ogg es un tren de
+  // ~10 clinks en 13 s). cada sfx se recorta a su trozo util [inicio, duracion]
+  // en segundos, para que suene UNA vez (un solo golpe metalico al vender) y no
+  // arrastre repeticiones.
   const SFX_WINDOW = {
     win: [1.85, 1.30],   // la fanfarria arranca tras ~1.9 s de silencio
-    cheer: [2.30, 2.60], // la porra real (el .ogg es ambiente de 129 s)
     chain: [0.00, 0.45], // primer golpe metalico, no los 10 del archivo
     low: [0.55, 1.45],   // el .ogg arranca en silencio
     lose: [1.50, 0.90],
