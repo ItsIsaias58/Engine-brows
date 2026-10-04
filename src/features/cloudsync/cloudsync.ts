@@ -521,6 +521,22 @@ export class CloudSync {
       const snapshotVersion = this._mutationVersion;
       const snapshot = await window.lyraExportAllData();
       const body = JSON.stringify(snapshot);
+      // diagnostico: el server corta el upload por tamano (413). si el snapshot
+      // es grande, deja en consola su tamano y las bases que mas pesan, para
+      // saber que lo engorda sin adivinar.
+      {
+        const bytes = new TextEncoder().encode(body).byteLength;
+        if (bytes > 8 * 1024 * 1024) {
+          const heaviest = Object.entries(snapshot.indexedDB)
+            .map(([name, db]) => [name, JSON.stringify(db).length] as const)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+          console.warn(
+            `[cloudsync] snapshot ${(bytes / 1048576).toFixed(1)} MB; bases mas pesadas:`,
+            heaviest,
+          );
+        }
+      }
       const fingerprint = await payloadFingerprint(body);
 
       const response = await uploadSnapshot(body);

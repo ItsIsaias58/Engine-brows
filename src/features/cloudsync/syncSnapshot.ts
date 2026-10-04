@@ -11,6 +11,9 @@ const IDB_REGISTRY_KEY = "lyra-sync-idb-names";
 const MAX_SITE_RECORD_BYTES = 1024 * 1024;
 
 const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
+// bases puramente locales: caches que se regeneran solas y no son datos del
+// usuario. la del CRX de uBlock pesa varios MB y no tiene sentido subirla.
+const LOCAL_ONLY_DATABASES = new Set(["lyra-rivet-cache"]);
 
 const LOCAL_ONLY_KEYS = new Set([
   "auth_user",
@@ -220,6 +223,13 @@ function allowsSensitiveDatabase(name: string): boolean {
     name === FOLIO_DB ||
     name === "rivet_extensions" ||
     isSiteDatabaseName(name)
+  );
+}
+
+function isSyncableDatabase(name: string): boolean {
+  return (
+    !LOCAL_ONLY_DATABASES.has(name) &&
+    (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name))
   );
 }
 
@@ -1107,11 +1117,7 @@ function registeredDatabaseNames(): Set<string> {
     const parsed = stored ? JSON.parse(stored) : [];
     if (Array.isArray(parsed)) {
       for (const name of parsed) {
-        if (
-          typeof name === "string" &&
-          name &&
-          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name))
-        ) {
+        if (typeof name === "string" && name && isSyncableDatabase(name)) {
           names.add(name);
         }
       }
@@ -1123,21 +1129,14 @@ function registeredDatabaseNames(): Set<string> {
 function saveDatabaseNames(names: Iterable<string>): void {
   try {
     const safe = [...new Set(names)]
-      .filter(
-        (name) =>
-          name &&
-          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
-      )
+      .filter((name) => isSyncableDatabase(name))
       .sort();
     globalThis.localStorage?.setItem(IDB_REGISTRY_KEY, JSON.stringify(safe));
   } catch {}
 }
 
 export function rememberIndexedDBName(name: string): void {
-  if (
-    !name ||
-    (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))
-  ) {
+  if (!name || !isSyncableDatabase(name)) {
     return;
   }
   const names = registeredDatabaseNames();
@@ -1159,7 +1158,7 @@ async function databaseNames(factory: IDBFactory): Promise<string[]> {
         (name): name is string =>
           typeof name === "string" &&
           name.length > 0 &&
-          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
+          isSyncableDatabase(name),
       )
       .sort();
     saveDatabaseNames(names);

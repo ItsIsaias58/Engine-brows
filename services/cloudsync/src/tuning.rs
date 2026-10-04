@@ -38,7 +38,10 @@ fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
     let db_pool_max = (cores as u32).clamp(4, 12);
     let db_pool_min_idle = (db_pool_max / 6).max(1);
 
-    let body_limit_mb = (ram_mb / 24).clamp(16, 64) as usize;
+    // el tope del cuerpo HTTP debe alcanzar el maximo que la propia app acepta
+    // (MAX_RAW_SIZE = 80 MB en sync.rs): con 64 MB tower cortaba antes de que
+    // el codigo pudiera decidir, y un snapshot de 65 MB daba 413 sin log claro.
+    let body_limit_mb = (ram_mb / 24).clamp(16, 80) as usize;
     let auth_work_min = 1;
     let auth_work_max = cores.clamp(2, 32);
     let auth_work_permits = cores.div_ceil(2).clamp(auth_work_min, auth_work_max);
@@ -104,7 +107,7 @@ mod tests {
         let large = compute(65_536, 64);
         assert_eq!(large.sync_work_permits, 16);
         assert_eq!(large.db_pool_max, 12);
-        assert_eq!(large.body_limit_mb, 64);
+        assert_eq!(large.body_limit_mb, 80);
         assert_eq!(large.auth_work_permits, 32);
         assert!(large.db_pool_max as i64 * large.db_cache_size_kb <= 384 * 1024);
     }
