@@ -67,9 +67,41 @@ async function runClients(n, seconds) {
   };
 }
 
+// un socket tipo chat/opencase: en el handshake declara que ignora `tick` y
+// `snapshot`, así el mercado no se los serializa ni se los manda.
+async function runQuietSocket(seconds) {
+  const stats = { totalBytes: 0, frames: 0, byType: {} };
+  const ws = new WebSocket(wsBase + '/ws/market?skip=tick,snapshot');
+  await new Promise((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = () => reject(new Error('quiet socket failed'));
+  });
+  ws.onmessage = (ev) => {
+    const s = typeof ev.data === 'string' ? ev.data : String(ev.data);
+    const len = Buffer.byteLength(s, 'utf8');
+    let type = '?';
+    try { type = JSON.parse(s).type || '?'; } catch {}
+    stats.totalBytes += len; stats.frames += 1;
+    stats.byType[type] = stats.byType[type] || { bytes: 0, frames: 0 };
+    stats.byType[type].bytes += len; stats.byType[type].frames += 1;
+  };
+  const t0 = Date.now();
+  await sleep(seconds * 1000);
+  const elapsed = (Date.now() - t0) / 1000;
+  try { ws.close(); } catch {}
+  return {
+    seconds,
+    totalBytes: stats.totalBytes,
+    frames: stats.frames,
+    bytesPerSec: Math.round(stats.totalBytes / elapsed),
+    byType: stats.byType,
+  };
+}
+
 const r1 = await runClients(1, 6);
 const r5 = await runClients(5, 6);
 const r20 = await runClients(20, 6);
+const rQuiet = await runQuietSocket(6);
 
 // ---- coste de un tick del motor (CPU, síncrono) ----
 const { tickMarketState, marketSnapshot, liveCandles } = await import('../../services/market/engine.mjs');
@@ -89,7 +121,7 @@ const tickCpuMs = acc / N;
 
 console.log(JSON.stringify({
   resources,
-  ws: { one: r1, five: r5, twenty: r20 },
+  ws: { one: r1, five: r5, twenty: r20, chatLike: rQuiet },
   engine: { tickModelCpuMsAvg: +tickCpuMs.toFixed(3), ticksPerSec: +(1000 / tickCpuMs).toFixed(1) },
 }, null, 2));
 

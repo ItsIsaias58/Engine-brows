@@ -1068,6 +1068,53 @@ describe('market service', () => {
     socket.close();
   });
 
+  // el chat y el opencase abren el mismo /ws/market pero descartan el `tick` y el
+  // snapshot inicial. Declararlo en el handshake (?skip=) evita que el servidor
+  // los serialice y los mande a quien los va a tirar (~4.8 KB/s por socket).
+  test('a socket that declares skip=tick,snapshot only receives what it consumes', async () => {
+    const skipped = [];
+    const chat = new globalThis.WebSocket(
+      `ws://127.0.0.1:${instance.port}/ws/market?skip=tick,snapshot`,
+    );
+    const full = [];
+    const game = new globalThis.WebSocket(`ws://127.0.0.1:${instance.port}/ws/market`);
+    const opened = [chat, game].map(
+      (socket) =>
+        new Promise((resolve, reject) => {
+          socket.onopen = () => resolve();
+          socket.onerror = () => reject(new Error('socket failed'));
+        }),
+    );
+    chat.onmessage = (event) => { try { skipped.push(JSON.parse(event.data)); } catch {} };
+    game.onmessage = (event) => { try { full.push(JSON.parse(event.data)); } catch {} };
+    await Promise.all(opened);
+
+    // deja correr varios ticks (200 ms cada uno contra el tickMs del banco)
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      if (full.filter((m) => m.type === 'tick').length >= 3) break;
+      await Bun.sleep(30);
+    }
+
+    // el socket sin `skip` recibe el snapshot inicial y los ticks
+    expect(full.some((m) => m.type === 'snapshot')).toBe(true);
+    expect(full.some((m) => m.type === 'tick')).toBe(true);
+    // el que declaró el skip no recibe ninguno de los dos...
+    expect(skipped.some((m) => m.type === 'tick')).toBe(false);
+    expect(skipped.some((m) => m.type === 'snapshot')).toBe(false);
+    // ...pero sigue vivo y atendiendo el resto del protocolo: responde un ping
+    chat.send(JSON.stringify({ type: 'ping' }));
+    const pongDeadline = Date.now() + 1000;
+    while (Date.now() < pongDeadline) {
+      if (skipped.some((m) => m.type === 'pong')) break;
+      await Bun.sleep(20);
+    }
+    expect(skipped.some((m) => m.type === 'pong')).toBe(true);
+
+    chat.close();
+    game.close();
+  });
+
   test('reloads market prices and player statistics after a restart', async () => {
     const priceBefore = instance.market.symbols[0].price;
     const sequenceBefore = instance.market.sequence;

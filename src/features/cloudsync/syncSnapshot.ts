@@ -1356,6 +1356,92 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
+// tamaño aproximado (bytes) de un valor ya codificado. Recorrido lineal y sin
+// asignaciones: sirve para atribuir el peso de la instantánea a cada base sin
+// volver a serializar decenas de MB (eso ya se probó demasiado caro).
+function encodedApproxBytes(value: EncodedValue): number {
+  switch (value.type) {
+    case "null":
+    case "undefined":
+      return 8;
+    case "boolean":
+      return 6;
+    case "number":
+      return 12;
+    case "string":
+      return value.value.length + 12;
+    case "bigint":
+      return value.value.length + 12;
+    case "reference":
+      return 14;
+    case "date":
+      return value.value.length + 20;
+    case "regexp":
+      return value.value.source.length + value.value.flags.length + 40;
+    case "array":
+    case "set":
+      return (
+        24 +
+        value.value.reduce((total, entry) => total + encodedApproxBytes(entry), 0)
+      );
+    case "object":
+      return (
+        24 +
+        Object.entries(value.value).reduce(
+          (total, [key, entry]) =>
+            total + key.length + encodedApproxBytes(entry) + 6,
+          0,
+        )
+      );
+    case "map":
+      return (
+        24 +
+        value.value.reduce(
+          (total, [key, entry]) =>
+            total + encodedApproxBytes(key) + encodedApproxBytes(entry) + 6,
+          0,
+        )
+      );
+    case "array_buffer":
+      return value.value.length + 24;
+    case "blob":
+      return value.value.bytes.length + value.value.mediaType.length + 32;
+    case "file":
+      return (
+        value.value.bytes.length +
+        value.value.name.length +
+        value.value.mediaType.length +
+        48
+      );
+    case "typed_array":
+      return encodedApproxBytes(value.value.buffer) + 48;
+    default:
+      return 16;
+  }
+}
+
+// bases de IndexedDB ordenadas por peso aproximado. El conteo de registros no
+// dice qué infla la instantánea: una base con dos blobs puede pesar más que otra
+// con miles de enteros. Con esto se ve, en la consola, cuál recortar.
+export function heaviestSyncDatabases(
+  indexedDB: SyncSnapshot["indexedDB"],
+  limit = 5,
+): Array<readonly [string, number]> {
+  return Object.entries(indexedDB)
+    .map(([name, database]) => {
+      let bytes = 0;
+      for (const store of Object.values(database.stores)) {
+        for (const record of store.records) {
+          bytes +=
+            encodedApproxBytes(record.key) + encodedApproxBytes(record.value);
+        }
+      }
+      return [name, bytes] as const;
+    })
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit);
+}
+
 // parte que NO necesita el hilo principal para leer IndexedDB: storage + cookies.
 // se separa para que el worker pesado (IndexedDB + stringify) reciba sólo estos
 // datos pequeños desde el hilo principal.

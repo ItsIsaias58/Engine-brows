@@ -911,7 +911,9 @@
       // el token va en la cookie, no en la URL del handshake: prod.mjs escribe
   // requestUrl.search en el access log y la sesion acababa en disco.
   setMarketTokenCookie(session.token);
-  ws = new WebSocket(`${proto}//${location.host}/ws/market`);
+  // `skip`: este socket sólo consume skins-update/portfolio-override/finance; el
+  // mercado deja de mandarle el frame `tick` (~4.8 KB/s) y el snapshot inicial.
+  ws = new WebSocket(`${proto}//${location.host}/ws/market?skip=tick,snapshot`);
     } catch { scheduleReconnect(); return; }
     ws.onopen = () => {
       // el token por query autoriza en el upgrade; reforzamos por si acaso

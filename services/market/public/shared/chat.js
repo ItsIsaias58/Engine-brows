@@ -539,7 +539,9 @@
     }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     try {
-      state.ws = new WebSocket(`${proto}//${location.host}/ws/market`);
+      // `skip`: este socket sólo consume chat; el mercado deja de mandarle el
+      // frame `tick` (~4.8 KB/s) y el snapshot inicial, que descartaba igual.
+      state.ws = new WebSocket(`${proto}//${location.host}/ws/market?skip=tick,snapshot`);
     } catch {
       return;
     }

@@ -230,3 +230,76 @@ a partir de la segunda visita el servidor no sirve estáticos.
 
 **Comprobaciones:** suite **458 pass / 0 fail**; `typecheck` exit 0; `lint` exit 0;
 `node --check` en `server.mjs` y los `sw.js`.
+
+## 9. Diagnóstico del snapshot de cloudsync: de registros a bytes
+
+Pendiente nº1 de la auditoría: **atribuir** el peso de la instantánea (~67 MB) a
+una base concreta. El log existente no servía para decidirlo:
+
+- `src/features/cloudsync/cloudsync.ts:193-206` y
+  `src/features/cloudsync/snapshotPayload.worker.ts:60-76` ordenaban las bases
+  por **número de registros**. Una base con dos blobs pesa más que otra con
+  miles de enteros, así que el ranking podía señalar a la base equivocada.
+- Se descartó `JSON.stringify(db)` por base (2.ª serialización de decenas de MB).
+
+Cambio (sólo diagnóstico; no altera qué se sincroniza ni cuándo):
+
+- `src/features/cloudsync/syncSnapshot.ts` — `encodedApproxBytes()` recorre el
+  valor ya codificado y suma longitudes sin asignar cadenas; y
+  `heaviestSyncDatabases()` devuelve el top-5 por **bytes aproximados**. Una sola
+  implementación compartida por el hilo principal y el worker.
+- Ambos `console.warn` muestran ahora `[nombre, "X.X MB"]` y siguen disparándose
+  sólo si la instantánea pasa de 8 MB.
+
+**Comprobaciones:** `bun test --isolate scripts src services` → **460 pass / 0 fail**
+(2 tests nuevos en `src/features/cloudsync/syncSnapshot.test.ts` fijan que el
+ranking va por bytes y que una base vacía pesa 0); `bun run typecheck` exit 0;
+`bun run lint` exit 0.
+
+Pendiente: excluir más bases de `LOCAL_ONLY_DATABASES` una vez el log diga cuál
+es la culpable (necesita los números del perfil real; no se adivina porque
+excluir la base equivocada pierde saves).
+
+## 10. Feed del WebSocket: `tick` sólo a quien lo consume
+
+El chat y el opencase abren su propio socket a `/ws/market` y **descartan** el
+frame `tick` (y el `snapshot` inicial):
+
+- `services/market/public/shared/chat.js:545` — sólo atiende `chat` y `chat-channel`.
+- `services/market/public/csgo-opencase/app.js:924` — sólo atiende `skins-update`,
+  `portfolio-override` y `finance`.
+- Aun así, `services/market/server.mjs` hacía `broadcast(...)` a **todos** los
+  sockets de `clients` (`broadcast()` en la sección de timers), así que esos dos
+  pagaban ~4.8 KB/s de `tick` más el `snapshot` inicial de ~8.2 KB.
+
+Cambio **aditivo** (sin el parámetro, el socket recibe exactamente lo de antes):
+
+- `server.mjs` — el handshake lee `?skip=tick,snapshot` a un `Set` en
+  `socket.data.skipFrames`; `broadcast()` y el `open()` inicial lo consultan vía
+  `wantsFrame(socket, type)`. Un socket que ignora `tick` tampoco lo recibe, y el
+  servidor no lo serializa para él.
+- `chat.js` y `csgo-opencase/app.js` — conectan con `?skip=tick,snapshot`.
+
+**Medido** (`scripts/perf/live-server.mjs`, banco real, `tickMs` 1000, ventana de
+6 s):
+
+| Socket | Bytes/s | Frames en 6 s |
+|---|---|---|
+| sin `skip` (bolsa) | **6188** | 8 (1 snapshot + 6 tick + 1 auth) |
+| `?skip=tick,snapshot` (chat/opencase) | **0** | 0 |
+
+El socket completo mantiene sus cifras de línea base (6188 vs 6199 B/s ⇒ dentro
+del ruido): el filtro no toca a quien sí consume el `tick`.
+
+**Comprobaciones:** test nuevo en `scripts/market.test.mjs` ("a socket that
+declares skip=tick,snapshot only receives what it consumes") que abre los dos
+sockets, comprueba que sólo el completo recibe `snapshot`+`tick`, y que el otro
+sigue vivo respondiendo un `ping` → `pong`. Suite **461 pass / 0 fail**;
+`typecheck` exit 0; `lint` exit 0; `node --check` en `server.mjs`, `chat.js`,
+`app.js`.
+
+No tocado a propósito: el poll de 1 s de opencase
+(`csgo-opencase/app.js:1277-1294`). Es la red de seguridad que reconcilia el
+monedero y `tradesBook` si el push se pierde; cuesta 1 petición/s de ~350 B,
+14× menos que el `tick` que sí se ha quitado. Sin evidencia de que estorbe, no se
+toca.

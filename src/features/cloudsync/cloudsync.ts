@@ -10,6 +10,7 @@ import {
   changedDuringUpload,
   exportNonIndexedDBParts,
   forgetIndexedDBName,
+  heaviestSyncDatabases,
   isSensitiveSyncName,
   payloadFingerprint,
   rememberIndexedDBName,
@@ -192,15 +193,11 @@ function getSnapshotWorker(): Worker | null {
 
 function logSnapshotSize(snapshot: SyncSnapshot, body: string): void {
   if (body.length <= 8 * 1024 * 1024) return;
-  const heaviest = Object.entries(snapshot.indexedDB)
-    .map(([name, db]) => [
-      name,
-      Object.values(db.stores).reduce((n, store) => n + store.records.length, 0),
-    ] as const)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  const heaviest = heaviestSyncDatabases(snapshot.indexedDB).map(
+    ([name, bytes]) => [name, `${(bytes / 1048576).toFixed(1)} MB`] as const,
+  );
   console.warn(
-    `[cloudsync] snapshot ~${(body.length / 1048576).toFixed(1)} MB; bases mas pesadas (registros):`,
+    `[cloudsync] snapshot ~${(body.length / 1048576).toFixed(1)} MB; bases mas pesadas (bytes aprox):`,
     heaviest,
   );
 }

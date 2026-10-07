@@ -331,9 +331,18 @@ export function createMarketServer(options = {}) {
   // revocation) is visible in players.json without waiting for a login
   if (adminFlagsChanged) persistAccounts();
 
+  // los sockets que sólo consumen parte del feed declaran en el handshake qué
+  // frames ignoran (`?skip=tick,snapshot`): así el mercado no gasta serializar ni
+  // enviarles esos frames. Es aditivo: sin el parámetro el socket recibe TODO,
+  // igual que antes (clientes viejos y sondas de consola incluidos).
+  function wantsFrame(socket, type) {
+    return !socket.data?.skipFrames?.has(type);
+  }
+
   function broadcast(payload) {
     const text = JSON.stringify(payload);
     for (const socket of clients) {
+      if (!wantsFrame(socket, payload.type)) continue;
       try {
         socket.send(text);
       } catch {
@@ -1629,12 +1638,19 @@ export function createMarketServer(options = {}) {
       // una cookie httpOnly que nunca debió poder leer.
       const { account, created } = resolveRequestAccount(req, token);
       if (account && created) persistAccounts();
+      const skipFrames = new Set(
+        (url.searchParams.get('skip') || '')
+          .split(',')
+          .map((type) => type.trim())
+          .filter(Boolean),
+      );
       const upgraded = server.upgrade(req, {
         data: {
           token,
           authorized: Boolean(account),
           accountName: account ? account.name : null,
           sso: Boolean(account) && !authenticate(accounts, token),
+          skipFrames,
         },
       });
       if (upgraded) return undefined;
@@ -1676,6 +1692,7 @@ export function createMarketServer(options = {}) {
       idleTimeout: 120,
       open(socket) {
         clients.add(socket);
+        if (!wantsFrame(socket, 'snapshot')) return;
         socket.send(
           JSON.stringify({
             type: 'snapshot',

@@ -9,6 +9,7 @@
 // `syncSnapshot.ts` para compartir el mismo export y las mismas reglas.
 import {
   exportIndexedDBSnapshot,
+  heaviestSyncDatabases,
   payloadFingerprint,
   type SyncSnapshot,
 } from "./syncSnapshot.ts";
@@ -56,20 +57,14 @@ ctx.onmessage = (event) => {
       const snapshot: SyncSnapshot = { ...parts, indexedDB };
       const body = JSON.stringify(snapshot);
       // diagnostico barato (sin re-serializar cada base): sale en la consola del
-      // worker en DevTools. `body.length` es una aproximacion del peso en bytes.
+      // worker en DevTools. `body.length` es una aproximacion del peso en bytes,
+      // y `heaviestSyncDatabases` atribuye ese peso a cada base sin serializar.
       if (body.length > 8 * 1024 * 1024) {
-        const heaviest = Object.entries(snapshot.indexedDB)
-          .map(([name, db]) => [
-            name,
-            Object.values(db.stores).reduce(
-              (n, store) => n + store.records.length,
-              0,
-            ),
-          ] as const)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5);
+        const heaviest = heaviestSyncDatabases(snapshot.indexedDB).map(
+          ([name, bytes]) => [name, `${(bytes / 1048576).toFixed(1)} MB`] as const,
+        );
         console.warn(
-          `[cloudsync] snapshot ~${(body.length / 1048576).toFixed(1)} MB; bases mas pesadas (registros):`,
+          `[cloudsync] snapshot ~${(body.length / 1048576).toFixed(1)} MB; bases mas pesadas (bytes aprox):`,
           heaviest,
         );
       }
