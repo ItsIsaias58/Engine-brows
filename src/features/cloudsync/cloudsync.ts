@@ -123,8 +123,20 @@ function whenIdle(timeoutMs = 1000): Promise<void> {
 }
 
 interface SnapshotPayload {
-  body: string;
   fingerprint: string;
+  /** longitud UTF-16 del cuerpo, tal cual lo serializa el worker */
+  rawLength: number;
+  /**
+   * gzip ya calculado DENTRO del worker. Al subir sólo viajan estos bytes, así
+   * que el hilo principal nunca recibe (ni comprime) el cuerpo de decenas de MB.
+   */
+  compressed: ArrayBuffer | null;
+  /**
+   * cuerpo crudo. `null` cuando el worker ya lo comprimió: mantener la copia de
+   * 67 MB en el hilo principal era justo lo que congelaba la UI. Sólo llega
+   * cuando comprimir no compensa (o cuando no hay worker y se hace aquí).
+   */
+  body: string | null;
 }
 
 interface PendingSnapshot {
@@ -138,6 +150,7 @@ interface PendingSnapshot {
 // clasico en el hilo principal (nunca se pierde un sync por el worker).
 let snapshotWorker: Worker | null = null;
 let snapshotWorkerUnavailable = false;
+let snapshotWorkerFailures = 0;
 let snapshotRequestId = 0;
 const snapshotPending = new Map<number, PendingSnapshot>();
 
@@ -167,21 +180,32 @@ function getSnapshotWorker(): Worker | null {
         ok?: boolean;
         body?: string;
         fingerprint?: string;
+        rawLength?: number;
+        compressed?: ArrayBuffer;
         error?: string;
       };
       const pending = data && typeof data.id === "number" ? snapshotPending.get(data.id) : undefined;
       if (!pending || typeof data.id !== "number") return;
       snapshotPending.delete(data.id);
       clearTimeout(pending.timer);
-      if (data.ok && typeof data.body === "string" && typeof data.fingerprint === "string") {
-        pending.resolve({ body: data.body, fingerprint: data.fingerprint });
+      if (data.ok && typeof data.fingerprint === "string") {
+        pending.resolve({
+          fingerprint: data.fingerprint,
+          rawLength: typeof data.rawLength === "number" ? data.rawLength : 0,
+          compressed: data.compressed ?? null,
+          body: typeof data.body === "string" ? data.body : null,
+        });
       } else {
         pending.reject(new Error(data.error || "snapshot worker failed"));
       }
     };
     snapshotWorker.onerror = () => {
-      snapshotWorkerUnavailable = true;
       snapshotWorker = null;
+      snapshotWorkerFailures += 1;
+      // un fallo suelto no condena el sync al hilo principal para siempre: se
+      // reintenta crear el worker unas cuantas veces antes de dar por bueno el
+      // camino clásico (que sí bloquea la UI)
+      if (snapshotWorkerFailures >= 3) snapshotWorkerUnavailable = true;
       forgetPendingSnapshots("snapshot worker error");
     };
     return snapshotWorker;
@@ -202,7 +226,9 @@ function logSnapshotSize(snapshot: SyncSnapshot, body: string): void {
   );
 }
 
-async function buildSnapshotPayload(): Promise<SnapshotPayload> {
+async function buildSnapshotPayload(
+  fingerprintOnly = false,
+): Promise<SnapshotPayload> {
   const worker = getSnapshotWorker();
   if (worker) {
     try {
@@ -214,10 +240,14 @@ async function buildSnapshotPayload(): Promise<SnapshotPayload> {
           reject(new Error("snapshot worker timeout"));
         }, 30000);
         snapshotPending.set(id, { resolve, reject, timer });
-        worker.postMessage({ id, parts });
+        worker.postMessage({ id, parts, fingerprintOnly });
       });
-    } catch {
-      // sin worker: se sigue por el hilo principal
+    } catch (error) {
+      // El worker NO está disponible: el camino clásico es la única forma de no
+      // perder el sync. Pero si lo que falló fue el trabajo (timeout o un error
+      // puntual), rehacer los 67 MB en el hilo principal justo ahora es
+      // exactamente lo que congelaba la UI: se propaga y el sync reintenta.
+      if (!snapshotWorkerUnavailable) throw error;
     }
   }
   if (typeof window.lyraExportAllData !== "function") {
@@ -227,11 +257,30 @@ async function buildSnapshotPayload(): Promise<SnapshotPayload> {
   const body = JSON.stringify(snapshot);
   logSnapshotSize(snapshot, body);
   const fingerprint = await payloadFingerprint(body);
-  return { body, fingerprint };
+  return { fingerprint, rawLength: body.length, compressed: null, body };
 }
 
-async function uploadSnapshot(body: string): Promise<Response> {
+async function uploadSnapshot(payload: SnapshotPayload): Promise<Response> {
   const rawHeaders = { "Content-Type": "application/json" };
+  // El gzip ya lo hizo el worker: aquí sólo viajan sus bytes, sin volver a
+  // copiar el cuerpo en el hilo principal. Si el servidor rechazara el gzip con
+  // 415/422 se devuelve esa respuesta: 415 es imposible para "gzip" (el server
+  // lo acepta, `sync.rs` decode_upload_payload) y 422 significa que el payload
+  // decodificado no es válido o excede el límite, donde el crudo —más grande—
+  // sería rechazado igual.
+  if (payload.compressed) {
+    return fetchWithTimeout(
+      "/api/sync/upload",
+      {
+        method: "POST",
+        headers: { ...rawHeaders, "Content-Encoding": "gzip" },
+        body: payload.compressed,
+      },
+      SYNC_TIMEOUT,
+    );
+  }
+
+  const body = payload.body ?? "";
   if (body.length < 32 * 1024 || typeof CompressionStream === "undefined") {
     return fetchWithTimeout(
       "/api/sync/upload",
@@ -647,9 +696,10 @@ export class CloudSync {
     this._lastScan = now;
     this._isScanning = true;
     try {
-      const fingerprint = await snapshotFingerprint(
-        await window.lyraExportAllData(),
-      );
+      // sólo el fingerprint: con worker, ni la serialización ni el hash del
+      // navegador entero tocan el hilo principal (antes corrían aquí los dos,
+      // y con 67 MB son cientos de ms que se notan al volver a la pestaña)
+      const { fingerprint } = await buildSnapshotPayload(true);
       if (fingerprint !== this.syncMeta.fingerprint) this.markDirty();
     } catch {
       console.warn("[cloudsync] storage scan failed... /ᐠ - ˕ -マ");
@@ -703,9 +753,9 @@ export class CloudSync {
       // espera a un hueco del hilo principal y delega el export+stringify+hash
       // al worker (con fallback al hilo principal)
       await whenIdle();
-      const { body, fingerprint } = await buildSnapshotPayload();
+      const payload = await buildSnapshotPayload();
 
-      const response = await uploadSnapshot(body);
+      const response = await uploadSnapshot(payload);
 
       if (response.ok) {
         const uploadResult = await response.json();
@@ -714,7 +764,7 @@ export class CloudSync {
           this._mutationVersion,
         );
         this.syncMeta.dirty = uploadWasStale;
-        this.syncMeta.fingerprint = fingerprint;
+        this.syncMeta.fingerprint = payload.fingerprint;
         this.syncMeta.last_synced =
           uploadResult.updated_at ||
           new Date().toISOString().replace("T", " ").slice(0, 19);

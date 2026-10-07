@@ -298,6 +298,59 @@ sigue vivo respondiendo un `ping` → `pong`. Suite **461 pass / 0 fail**;
 `typecheck` exit 0; `lint` exit 0; `node --check` en `server.mjs`, `chat.js`,
 `app.js`.
 
+## 11. El cuerpo del snapshot ya no toca el hilo principal
+
+Síntoma reportado: al mover el ratón o pulsar **Configuración** la animación se
+queda congelada **2-3 s** y luego sigue. Si el hilo principal está haciendo el
+trabajo del snapshot, no puede pintar: eso es exactamente un long task.
+
+**Tres sitios** seguían serializando el navegador entero (~67 MB) en el hilo
+principal, aunque el worker ya existiera:
+
+| Sitio | Qué hacía en el hilo principal |
+|---|---|
+| `cloudsync.ts` `checkForChanges()` (el escaneo de seguridad, se dispara con la pestaña oculta) | `lyraExportAllData()` + `JSON.stringify` + `TextEncoder` + `crypto.subtle.digest` de todo el navegador |
+| `cloudsync.ts` `uploadSnapshot()` | `new Blob([body])` + `CompressionStream("gzip")` sobre 67 MB **en cada subida** |
+| `cloudsync.ts` `buildSnapshotPayload()` (worker devolvía `body`) | la recepción por `postMessage` copia el cuerpo de 67 MB al hilo principal |
+
+**Medido con el arnés nuevo** `scripts/perf/cloudsync-main-thread.mjs` (Chromium
+real, 67 MB, separando el trabajo del worker del que cae al hilo principal):
+
+| | recibir en hilo principal | Blob+gzip en hilo principal | **peor hueco de frame** |
+|---|---|---|---|
+| antes (worker devuelve el cuerpo) | 23-27 ms | 482 ms | **235-436 ms** |
+| ahora (worker devuelve el gzip transferido) | 0,3-2 ms | 0 ms | **0-0,9 ms** |
+
+Y el coste de las etapas del escaneo, medido por separado con
+`scripts/perf/snapshot-phases.mjs` (`bun`, 67 MB): `stringify` 60 ms +
+`TextEncoder` 29 ms + `sha256` 73 ms ≈ **162 ms** que ya no corren en el hilo
+principal.
+
+Cambio (mismo dato, mismos bytes subidos, mismo fingerprint — sólo cambia dónde
+se calculan):
+
+- `snapshotPayload.worker.ts` — el worker **comprime** (mismo criterio que antes:
+  sólo si gana a crudo) y devuelve el `ArrayBuffer` **transferido**; con
+  `fingerprintOnly` responde sólo el hash, sin cuerpo.
+- `cloudsync.ts` — `checkForChanges()` pide sólo el fingerprint del worker;
+  `buildSnapshotPayload(fingerprintOnly)` devuelve `{fingerprint, compressed,
+  body, rawLength}` y `uploadSnapshot(payload)` sube el gzip ya hecho.
+- `syncData()` — el respaldo al hilo principal ahora **sólo** ocurre si el worker
+  es inalcanzable. Si lo que falló fue el trabajo (timeout o error puntual), el
+  error se propaga y el sync reintenta: rehacer 67 MB en el hilo principal era
+  justo el congelamiento.
+- El worker se re-crea hasta 3 veces si falla, en vez de condenar el sync al
+  hilo principal para siempre.
+
+Contrapartida documentada: si el servidor rechazara el gzip con 415/422, esa
+respuesta se devuelve tal cual en vez de reintentar con el crudo — 415 es
+imposible para `gzip` (`services/cloudsync/src/sync.rs` acepta `gzip` e
+`identity`) y 422 significa payload inválido o demasiado grande, donde el crudo
+(más grande) sería rechazado igual.
+
+**Comprobaciones:** suite **461 pass / 0 fail**; `typecheck` exit 0; `lint` exit 0;
+ambos arneses ejecutados desde el repo.
+
 No tocado a propósito: el poll de 1 s de opencase
 (`csgo-opencase/app.js:1277-1294`). Es la red de seguridad que reconcilia el
 monedero y `tradesBook` si el push se pierde; cuesta 1 petición/s de ~350 B,

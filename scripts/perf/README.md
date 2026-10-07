@@ -26,6 +26,7 @@ Solo servidor (sin Chromium, sin dependencias extra):
 | --- | --- |
 | `measure-payload.mjs` | bytes por frame `tick`, snapshot, velas, `market.json` |
 | `live-server.mjs` | bytes/cliente/s de 1, 5 y 20 sockets + CPU de un tick |
+| `snapshot-phases.mjs` | coste en el hilo principal de cada etapa del snapshot (67 MB) |
 
 Navegador (requieren `playwright-core` + Chromium):
 
@@ -36,5 +37,6 @@ Navegador (requieren `playwright-core` + Chromium):
 | `admin-lazy.mjs` | `admin.js` no se pide de invitado; el atajo lo carga |
 | `cache-check.mjs` | ETag/304 del server y 2ª carga de bolsa servida por el SW |
 | `opencase-cache.mjs` | 2ª carga de csgo-opencase servida por el SW |
+| `cloudsync-main-thread.mjs` | jank de recibir el snapshot del worker: cuerpo crudo vs gzip transferido |
 
 Todos imprimen un único JSON por stdout.
