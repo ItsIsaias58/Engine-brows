@@ -30,6 +30,20 @@ const browser = await chromium.launch({
 });
 
 // ---- js de la pagina: qué tarjeta quedó centrada bajo el marcador ----
+// antes de que el giro termine: qué hay en la casilla 42 y si se ve en pantalla
+const READ_PRE_REVEAL = () => {
+  const reel = document.getElementById('roulette');
+  const reelRect = reel.getBoundingClientRect();
+  const card = reel.querySelectorAll('.rl-item')[42];
+  const cr = card.getBoundingClientRect();
+  return {
+    index42Name: (card.querySelector('b')?.textContent || '').trim(),
+    // ¿el premio ya estaba a la vista antes de girar? (no debería: la casilla
+    // 42 empieza lejos del inicio de la cinta)
+    winnerVisibleBeforeSpin: cr.left < reelRect.right && cr.right > reelRect.left,
+  };
+};
+
 const READ_ROULETTE = () => {
   const reel = document.getElementById('roulette');
   const reelRect = reel.getBoundingClientRect();
@@ -75,6 +89,10 @@ async function seedGuest(page) {
 
 async function playOneSpin(page, { sampleInventory = false } = {}) {
   await page.click('.case-open:not([disabled])');
+  // la casilla 42 tal cual queda ANTES del revelado: si el premio se sustituye
+  // al parar, aquí todavía aparece un relleno distinto del item real
+  await sleep(1200);
+  const preReveal = await page.evaluate(READ_PRE_REVEAL);
   const during = [];
   if (sampleInventory) {
     for (let i = 0; i < 3; i++) {
@@ -86,6 +104,9 @@ async function playOneSpin(page, { sampleInventory = false } = {}) {
   await sleep(500);
   const out = await page.evaluate(READ_ROULETTE);
   out.duringSpinIds = during.flat();
+  out.preRevealIndex42Name = preReveal.index42Name;
+  out.preRevealIsThePrize = preReveal.index42Name === out.resultName;
+  out.preRevealWinnerHidden = preReveal.winnerVisibleBeforeSpin === false;
   return out;
 }
 
@@ -105,6 +126,9 @@ async function runAt(viewport, label) {
     centeredIsWinner: spin.centeredIsWinner,
     centeredOffsetPx: spin.centeredOffsetPx,
     matches: spin.centeredName === spin.resultName,
+    preRevealIndex42Name: spin.preRevealIndex42Name,
+    preRevealIsThePrize: spin.preRevealIsThePrize,
+    preRevealWinnerHidden: spin.preRevealWinnerHidden,
     inventoryCountAfterReveal: spin.inventoryCount,
     duplicates: dupes,
     errors,
@@ -117,6 +141,10 @@ async function runAt(viewport, label) {
 const narrow = await runAt({ width: 480, height: 900 }, 'invitado/estrecho');
 // invitado, escritorio (el caso que sí coincidía con la constante de 156)
 const desktop = await runAt({ width: 1280, height: 900 }, 'invitado/escritorio');
+// invitado, pantalla ancha: si la cinta no es lo bastante larga, el scroll se
+// recorta al máximo y el marcador acaba sobre OTRA tarjeta
+const wide = await runAt({ width: 1920, height: 1000 }, 'invitado/ancho');
+const ultra = await runAt({ width: 2560, height: 1200 }, 'invitado/ultra ancho');
 
 // sesion real: el server concede la skin y la empuja por websocket antes de que
 // la ruleta pare; aquí se ve el inventario duplicado si el commit no deduplica
@@ -151,6 +179,9 @@ let signedIn = null;
     centeredName: spin.centeredName,
     resultName: spin.resultName,
     matches: spin.centeredName === spin.resultName,
+    preRevealIndex42Name: spin.preRevealIndex42Name,
+    preRevealIsThePrize: spin.preRevealIsThePrize,
+    preRevealWinnerHidden: spin.preRevealWinnerHidden,
     // si aquí aparece el id durante el giro, el push SÍ se adelantó al revelado:
     // sin la deduplicación el commit lo habría metido una segunda vez
     idsDuringSpin: spin.duringSpinIds,
@@ -162,11 +193,14 @@ let signedIn = null;
   await ctx.close();
 }
 
-console.log(JSON.stringify({ narrow, desktop, signedIn }, null, 2));
+console.log(JSON.stringify({ narrow, desktop, wide, ultra, signedIn }, null, 2));
 
+const spins = [narrow, desktop, wide, ultra, signedIn];
 const ok =
-  narrow.matches && desktop.matches && signedIn.matches &&
+  spins.every((s) => s.matches && s.preRevealIsThePrize && s.preRevealWinnerHidden) &&
+  narrow.matches && desktop.matches && wide.matches && ultra.matches && signedIn.matches &&
   narrow.duplicates.length === 0 && desktop.duplicates.length === 0 &&
+  wide.duplicates.length === 0 && ultra.duplicates.length === 0 &&
   signedIn.duplicates.length === 0 &&
   signedIn.serverInventoryCount === 1 && signedIn.inventoryCountAfterReveal === 1;
 console.log(ok ? 'OK: la ruleta coincide con el premio y no hay duplicados' : 'FALLO: revisar los datos de arriba');

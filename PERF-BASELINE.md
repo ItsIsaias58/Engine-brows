@@ -392,7 +392,31 @@ inventario **durante** el giro (el push se adelantó al revelado), y
 `inventoryCountAfterReveal` se queda en 1 — que es justo lo que la deduplicación
 impide que se convierta en 2.
 
-`sw.js` sube a `opencase-shell-v2`: sin eso el precache de 7 días seguiría
+**4) La tarjeta del premio se SUSTITUÍA al parar (la desincronización que
+seguía).** `buildRoulette()` pintaba un relleno al azar en la casilla 42 y
+`revealWinnerAt()` la reemplazaba con el premio cuando el scroll terminaba. El
+ease-out es quintic (`1 − (1−p)⁵`), así que en la última mitad del tiempo la
+cinta está casi parada: el jugador **lee la tarjeta del relleno con calma** y el
+intercambio de la skin llega después, como un cambio. El arnés lo captura en
+crudo: en `invitado/estrecho` la casilla 42 mostraba a mitad de giro
+`★ Karambit | Freehand` mientras el premio era `MAG-7 | Sonar` — literalmente el
+"me va a dar un cuchillo y me dio una pistola" del reporte.
+
+Ahora el premio se coloca en la casilla 42 **antes** de girar (como una ruleta de
+verdad) y al parar sólo se enciende el glow (`markWinnerCard()`). No adelanta el
+resultado: la casilla 42 está a ~6600px del inicio y la cinta arranca en 0, fuera
+de la ventana visible; el arnés lo comprueba (`preRevealWinnerHidden`). Además
+`realignWinner()` re-centra con la geometría **actual** si algo cambió de tamaño
+durante el giro (barra de scroll, panel redimensionado); con la geometría estable
+es un no-op de < 1px.
+
+Nuevas comprobaciones del arnés: `preRevealIsThePrize` (la casilla 42 ya es el
+premio a mitad de giro) y `preRevealWinnerHidden` (no se ve antes de girar),
+medidas en 480px, 1280px, 1920px y 2560px y en sesión real. Con el código
+anterior el arnés sale en rojo (`preRevealIsThePrize: false`); con el arreglo, en
+verde.
+
+`sw.js` sube a `opencase-shell-v3`: sin eso el precache de 7 días seguiría
 sirviendo el `app.js` viejo.
 
 **Comprobaciones:** suite **461 pass / 0 fail**; `typecheck` exit 0; `lint` exit 0;

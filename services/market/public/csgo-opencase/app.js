@@ -489,7 +489,7 @@
     // la cinta visible es #roulette (el único con overflow): sobre él se hace
     // el scroll. animar el wrapper no mueve nada (scrollLeft siempre 0).
     const reel = $("roulette");
-    buildRoulette(c);
+    buildRoulette(c, item);
     wrap.classList.remove("is-hidden");
     $("caseGrid").classList.add("is-hidden");
     const backBtn = $("rouletteBack");
@@ -497,28 +497,27 @@
     renderWallet();
 
     const STEP = 156; // respaldo: 148px de tarjeta + 8px de gap (style.css)
-    const WINNER = 42;
     const dur = 5200 + Math.random() * 900;
     const reelW = reel.clientWidth || wrap.clientWidth || 700;
     // la geometría se MIDE de las tarjetas ya pintadas, no se asume: con
     // `@media (max-width: 640px)` (style.css) `.rl-item` pasa a 120px, así que la
-    // constante de 156 dejaba el centro del marcador sobre OTRA tarjeta. La
-    // ruleta paraba en un relleno y la tarjeta de resultado mostraba otro item:
-    // esa era la desincronización (arriba un sniper, abajo la pistola real).
+    // constante de 156 dejaba el centro del marcador sobre OTRA tarjeta.
     const cards = reel.querySelectorAll(".rl-item");
-    const winnerEl = cards[WINNER];
+    const winnerEl = cards[WINNER_INDEX];
     const target = winnerEl
-      ? Math.max(
-          0,
-          winnerEl.offsetLeft - cards[0].offsetLeft + winnerEl.offsetWidth / 2 - reelW / 2,
-        )
-      : Math.max(0, WINNER * STEP + 74 - reelW / 2);
+      ? Math.max(0, centerOfCard(cards, winnerEl) - reelW / 2)
+      : Math.max(0, WINNER_INDEX * STEP + 74 - reelW / 2);
 
     requestAnimationFrame(() => {
       reel.scrollLeft = 0;
       smoothScrollTo(reel, target, dur, () => {
         spinning = false;
         if (backBtn) backBtn.disabled = false;
+        // red de seguridad: si algo cambió de tamaño durante el giro (aparece una
+        // barra de scroll, se redimensiona el panel, carga una fuente), el destino
+        // calculado al principio ya no centra la tarjeta del premio. Sólo corrige
+        // si de verdad se desvió; si no, es un no-op de < 1px.
+        realignWinner(reel);
         try { showResult(c, item); } catch { recoverFromSpin(); }
       }, () => tickNow()); // CADA cruce de carta suena su tic: sonido 100% atado al movimiento
     });
@@ -565,7 +564,7 @@
     $("rcSell").onclick = () => { closeResult(); sellItem(item.id); };
     $("rcAgain").onclick = () => { closeResult(); openCase(currentCase.id); };
     // marca el ganador en la cinta y le dispara los efectos
-    revealWinnerAt(item);
+    markWinnerCard();
     let level = 0;
     try {
       level = window.OpenCaseFX ? window.OpenCaseFX.reveal(item, document.getElementById("rcBox")) : 0;
@@ -666,28 +665,44 @@
 
   // ---------------------------------------------------------------- ruleta
 
-  function buildRoulette(c) {
+  // La casilla 42 lleva EL PREMIO desde el principio, como la ruleta de verdad:
+  // la cinta frena encima de esa tarjeta y después ya no cambia nada.
+  //
+  // Antes se pintaba un relleno al azar y se SUSTITUÍA al parar: el jugador veía
+  // frenar la cinta sobre una skin y acto seguido esa skin se convertía en otra
+  // ("me tocó una roja y luego me la cambiaron por una azul"). No se adelanta el
+  // resultado: la casilla 42 está a ~6600px del inicio y la cinta arranca en 0,
+  // así que queda fuera de la ventana visible de `.roulette` (overflow: hidden)
+  // hasta que el scroll llega ahí.
+  const WINNER_INDEX = 42;
+  // posición del centro de una tarjeta dentro del contenido de la cinta
+  function centerOfCard(cards, card) {
+    return card.offsetLeft - cards[0].offsetLeft + card.offsetWidth / 2;
+  }
+  // deja la tarjeta del premio justo bajo el marcador con la geometría actual
+  function realignWinner(reel) {
+    const cards = reel.querySelectorAll(".rl-item");
+    const winnerEl = cards[WINNER_INDEX];
+    if (!winnerEl || cards.length < 2) return;
+    const want = Math.max(0, centerOfCard(cards, winnerEl) - (reel.clientWidth || 700) / 2);
+    if (Math.abs(reel.scrollLeft - want) > 1) reel.scrollLeft = want;
+  }
+  function buildRoulette(c, winner) {
     const pool = [];
     Object.entries(c.pools || {}).forEach(([rarityId, p]) => {
       (p.items || []).forEach((name) => pool.push({ name, rarityId }));
     });
     const items = [];
     for (let i = 0; i < 48; i += 1) items.push(fakeItem(pool, rand(0, pool.length - 1)));
-    // la casilla 42 recibe un relleno y NO el premio: si el item real se
-    // pintase aqui se veria en la cinta antes de que esta empiece a girar, que
-    // es justo lo que hacia el giro (el resultado ya estaba escrito en
-    // pantalla). revealWinnerAt lo sustituye cuando la cinta se para.
+    if (winner) items[WINNER_INDEX] = winner;
     $("roulette").innerHTML = items.map(rouletteItemHtml).join("");
   }
 
-  // se llama al terminar el scroll, no antes: es el momento en que el jugador
-  // mira. mismo item, misma posicion, misma animacion de is-winner.
-  function revealWinnerAt(winner) {
-    const winnerEl = document.querySelectorAll("#roulette .rl-item")[42];
-    if (!winnerEl) return;
-    winnerEl.outerHTML = rouletteItemHtml(winner);
-    const el = document.querySelectorAll("#roulette .rl-item")[42];
-    if (el) el.classList.add("is-winner");
+  // la tarjeta del premio ya está en la cinta desde buildRoulette: al parar sólo
+  // se enciende el glow. mismo item, misma posición.
+  function markWinnerCard() {
+    const winnerEl = document.querySelectorAll("#roulette .rl-item")[WINNER_INDEX];
+    if (winnerEl) winnerEl.classList.add("is-winner");
   }
 
   function rouletteItemHtml(it) {

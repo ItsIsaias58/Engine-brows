@@ -7,9 +7,11 @@
 // datos vivos (/api y /ws) nunca se cachean.
 //
 // Al cambiar el juego de forma incompatible basta subir CACHE_VERSION.
-// v2: app.js cambió (geometría de la ruleta + skin duplicada); sin subir la
-// versión el precache seguiría sirviendo el app.js viejo hasta 7 días.
-const CACHE_VERSION = 'opencase-shell-v2';
+// v2: app.js cambió (geometría de la ruleta + skin duplicada).
+// v3: el premio va en la cinta desde el principio (antes se sustituía al parar,
+// y durante el frenado se leía otra skin). Sin subir la versión el precache
+// seguiría sirviendo el app.js viejo hasta 7 días.
+const CACHE_VERSION = 'opencase-shell-v3';
 const CORE = ['./', './index.html', './style.css'];
 const SHELL = ['./util.js', './weapons.js', './effects.js', './app.js'];
 
