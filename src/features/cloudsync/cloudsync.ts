@@ -8,6 +8,7 @@ import {
 } from "../../core/ui/modal.ts";
 import {
   changedDuringUpload,
+  exportNonIndexedDBParts,
   forgetIndexedDBName,
   isSensitiveSyncName,
   payloadFingerprint,
@@ -48,7 +49,41 @@ declare global {
 const POLL_INTERVAL = 20000;
 const POLL_MAX_INTERVAL = 60000;
 const DIRTY_DEBOUNCE = 1500;
+// separacion minima entre escaneos+envios de verdad. Con una indexeddb grande
+// (decenas de MB) cada corrida serializa todo el navegador en el hilo principal
+// y satura la subida: sin este minimo, guardar el estado del juego cada 2 s
+// disparaba un snapshot completo cada pocos segundos (microcongelados + ancho
+// de banda). El debounce coalesce rafagas; esto separa los envios.
+const MIN_UPLOAD_INTERVAL = 15000;
 const SYNC_TIMEOUT = 60000;
+// El escaneo completo (leer TODA la indexeddb del navegador, serializarla
+// entera y hashearla) es la operacion mas cara del cloud sync. Los hooks de
+// storage ya marcan sucio al instante, asi que este escaneo es solo la red de
+// seguridad para cambios que los hooks no ven: no hace falta hacerlo cada 20 s.
+const SCAN_INTERVAL = 60000;
+
+// Claves que los juegos propios (bolsa / opencase) reescriben muchas veces por
+// segundo: son una cache local de un estado que YA es autoritativo en el
+// servidor del juego. Que una escritura de estas marque "sucio" hacia que el
+// sync construyera y subiera una instantanea completa cada pocos segundos
+// mientras se jugaba: con una indexeddb de decenas de MB eso satura el ancho de
+// banda y microcongela. Estas claves SIGUEN viajando dentro de la instantanea
+// (no se pierden): lo unico que dejan de hacer es DISPARARLA; entra con el
+// siguiente cambio real o con el escaneo de pestana oculta.
+const VOLATILE_LOCAL_NAMES = new Set([
+  "bolsa-trading-floor-save",
+  "bolsa-chart-view",
+  "opencase-local-inventory-v1",
+  "opencase-local-stats-v1",
+]);
+
+function isVolatileLocalName(name: unknown): boolean {
+  return typeof name === "string" && VOLATILE_LOCAL_NAMES.has(name);
+}
+
+// bases de indexeddb que son cache del juego (el historial de velas se vuelve a
+// pedir al servidor): escribirlas no debe disparar el sync, y tampoco viajan.
+const LOCAL_ONLY_INDEXED_DB = new Set(["bolsa-history", "lyra-rivet-cache"]);
 
 const LOADING_SCREEN = `
     <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
@@ -68,6 +103,134 @@ function fetchWithTimeout(
     ...options,
     signal: controller.signal,
   }).finally(() => clearTimeout(id));
+}
+
+// deja correr el trabajo caro (escaneo + serializacion del navegador, decenas
+// de MB) cuando el hilo principal esta libre, con un tope de tiempo para que no
+// se posponga indefinidamente si el usuario esta jugando.
+function whenIdle(timeoutMs = 1000): Promise<void> {
+  return new Promise((resolve) => {
+    const idle = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (typeof idle === "function") {
+      idle(() => resolve(), { timeout: timeoutMs });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+interface SnapshotPayload {
+  body: string;
+  fingerprint: string;
+}
+
+interface PendingSnapshot {
+  resolve: (value: SnapshotPayload) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+// el worker de serializacion (IndexedDB + JSON.stringify + fingerprint) para no
+// bloquear el hilo principal. Si no esta disponible o falla, se cae al camino
+// clasico en el hilo principal (nunca se pierde un sync por el worker).
+let snapshotWorker: Worker | null = null;
+let snapshotWorkerUnavailable = false;
+let snapshotRequestId = 0;
+const snapshotPending = new Map<number, PendingSnapshot>();
+
+function forgetPendingSnapshots(reason: string): void {
+  for (const [id, pending] of snapshotPending) {
+    snapshotPending.delete(id);
+    clearTimeout(pending.timer);
+    pending.reject(new Error(reason));
+  }
+}
+
+function getSnapshotWorker(): Worker | null {
+  if (snapshotWorker) return snapshotWorker;
+  if (snapshotWorkerUnavailable) return null;
+  if (typeof Worker === "undefined") {
+    snapshotWorkerUnavailable = true;
+    return null;
+  }
+  try {
+    snapshotWorker = new Worker(
+      new URL("./snapshotPayload.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    snapshotWorker.onmessage = (event: MessageEvent) => {
+      const data = event.data as {
+        id?: number;
+        ok?: boolean;
+        body?: string;
+        fingerprint?: string;
+        error?: string;
+      };
+      const pending = data && typeof data.id === "number" ? snapshotPending.get(data.id) : undefined;
+      if (!pending || typeof data.id !== "number") return;
+      snapshotPending.delete(data.id);
+      clearTimeout(pending.timer);
+      if (data.ok && typeof data.body === "string" && typeof data.fingerprint === "string") {
+        pending.resolve({ body: data.body, fingerprint: data.fingerprint });
+      } else {
+        pending.reject(new Error(data.error || "snapshot worker failed"));
+      }
+    };
+    snapshotWorker.onerror = () => {
+      snapshotWorkerUnavailable = true;
+      snapshotWorker = null;
+      forgetPendingSnapshots("snapshot worker error");
+    };
+    return snapshotWorker;
+  } catch {
+    snapshotWorkerUnavailable = true;
+    return null;
+  }
+}
+
+function logSnapshotSize(snapshot: SyncSnapshot, body: string): void {
+  if (body.length <= 8 * 1024 * 1024) return;
+  const heaviest = Object.entries(snapshot.indexedDB)
+    .map(([name, db]) => [
+      name,
+      Object.values(db.stores).reduce((n, store) => n + store.records.length, 0),
+    ] as const)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  console.warn(
+    `[cloudsync] snapshot ~${(body.length / 1048576).toFixed(1)} MB; bases mas pesadas (registros):`,
+    heaviest,
+  );
+}
+
+async function buildSnapshotPayload(): Promise<SnapshotPayload> {
+  const worker = getSnapshotWorker();
+  if (worker) {
+    try {
+      const parts = await exportNonIndexedDBParts();
+      const id = (snapshotRequestId += 1);
+      return await new Promise<SnapshotPayload>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          snapshotPending.delete(id);
+          reject(new Error("snapshot worker timeout"));
+        }, 30000);
+        snapshotPending.set(id, { resolve, reject, timer });
+        worker.postMessage({ id, parts });
+      });
+    } catch {
+      // sin worker: se sigue por el hilo principal
+    }
+  }
+  if (typeof window.lyraExportAllData !== "function") {
+    throw new Error("export boundary unavailable");
+  }
+  const snapshot = await window.lyraExportAllData();
+  const body = JSON.stringify(snapshot);
+  logSnapshotSize(snapshot, body);
+  const fingerprint = await payloadFingerprint(body);
+  return { body, fingerprint };
 }
 
 async function uploadSnapshot(body: string): Promise<Response> {
@@ -128,6 +291,8 @@ export class CloudSync {
   _isScanning: boolean;
   _pollInterval: number;
   _checkIntervalId: ReturnType<typeof setInterval> | null;
+  _lastScan: number;
+  _nextUploadAt: number;
 
   constructor() {
     try {
@@ -157,6 +322,8 @@ export class CloudSync {
     this._isScanning = false;
     this._pollInterval = POLL_INTERVAL;
     this._checkIntervalId = null;
+    this._lastScan = 0;
+    this._nextUploadAt = 0;
 
     this.init();
   }
@@ -325,13 +492,13 @@ export class CloudSync {
       const originalSetItem = storage.setItem;
       storage.setItem = function (key: string, value: string): void {
         originalSetItem.call(storage, key, value);
-        if (!isSensitiveSyncName(key)) self.markDirty();
+        if (!isSensitiveSyncName(key) && !isVolatileLocalName(key)) self.markDirty();
       };
 
       const originalRemoveItem = storage.removeItem;
       storage.removeItem = function (key: string): void {
         originalRemoveItem.call(storage, key);
-        if (!isSensitiveSyncName(key)) self.markDirty();
+        if (!isSensitiveSyncName(key) && !isVolatileLocalName(key)) self.markDirty();
       };
 
       const originalClear = storage.clear;
@@ -348,7 +515,7 @@ export class CloudSync {
       if (e.storageArea !== localStorage && e.storageArea !== sessionStorage)
         return;
       if (e.key === null) return self.markDirty();
-      if (isSensitiveSyncName(e.key)) return;
+      if (isSensitiveSyncName(e.key) || isVolatileLocalName(e.key)) return;
       self.markDirty();
     });
 
@@ -362,7 +529,10 @@ export class CloudSync {
         const original = proto[method] as (...args: unknown[]) => IDBRequest;
         if (!original) return;
         proto[method] = function (this: IDBObjectStore, ...args: unknown[]) {
-          self.markDirty();
+          const dbName = this && this.transaction && this.transaction.db
+            ? String(this.transaction.db.name)
+            : "";
+          if (!LOCAL_ONLY_INDEXED_DB.has(dbName)) self.markDirty();
           return original.apply(this, args);
         };
       };
@@ -448,9 +618,12 @@ export class CloudSync {
 
     this.updateStatus("syncing...", "loading");
 
+    // respeta la separacion minima: si el ultimo envio acaba de salir, difiere
+    // este en vez de encadenar otro escaneo pesado inmediato
+    const wait = Math.max(DIRTY_DEBOUNCE, this._nextUploadAt - Date.now());
     this.syncTimeout = setTimeout(() => {
       this.syncData();
-    }, DIRTY_DEBOUNCE);
+    }, wait);
   }
 
   async checkForChanges(): Promise<void> {
@@ -467,6 +640,14 @@ export class CloudSync {
       return;
     }
     if (typeof window.lyraExportAllData !== "function") return;
+    // no recorrer el navegador entero en cada poll: los cambios de verdad los
+    // marca markDirty al momento, esto es la red de seguridad. Y se corre SOLO
+    // con la pestana oculta: es la operacion mas cara (leer+serializar toda la
+    // indexeddb), asi que no debe bloquear el hilo mientras el usuario juega.
+    if (typeof document !== "undefined" && !document.hidden) return;
+    const now = Date.now();
+    if (now - this._lastScan < SCAN_INTERVAL) return;
+    this._lastScan = now;
     this._isScanning = true;
     try {
       const fingerprint = await snapshotFingerprint(
@@ -519,25 +700,13 @@ export class CloudSync {
       }
 
       const snapshotVersion = this._mutationVersion;
-      const snapshot = await window.lyraExportAllData();
-      const body = JSON.stringify(snapshot);
-      // diagnostico: el server corta el upload por tamano (413). si el snapshot
-      // es grande, deja en consola su tamano y las bases que mas pesan, para
-      // saber que lo engorda sin adivinar.
-      {
-        const bytes = new TextEncoder().encode(body).byteLength;
-        if (bytes > 8 * 1024 * 1024) {
-          const heaviest = Object.entries(snapshot.indexedDB)
-            .map(([name, db]) => [name, JSON.stringify(db).length] as const)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
-          console.warn(
-            `[cloudsync] snapshot ${(bytes / 1048576).toFixed(1)} MB; bases mas pesadas:`,
-            heaviest,
-          );
-        }
-      }
-      const fingerprint = await payloadFingerprint(body);
+      // sella la ventana de envio antes del trabajo caro: un markDirty que
+      // llegue mientras esto corre no encadena otro escaneo inmediato.
+      this._nextUploadAt = Date.now() + MIN_UPLOAD_INTERVAL;
+      // espera a un hueco del hilo principal y delega el export+stringify+hash
+      // al worker (con fallback al hilo principal)
+      await whenIdle();
+      const { body, fingerprint } = await buildSnapshotPayload();
 
       const response = await uploadSnapshot(body);
 
@@ -565,8 +734,18 @@ export class CloudSync {
           this.syncTimeout = setTimeout(() => this.syncData(), DIRTY_DEBOUNCE);
         }
       } else {
+        // el servidor explica por que rechaza (code + error); antes se tiraba
+        // y un 400 no dejaba rastro de QUE regla salto, asi que era imposible
+        // arreglar la instantanea sin adivinar.
+        const failure = (await response.json().catch(() => null)) as {
+          code?: unknown;
+          error?: unknown;
+        } | null;
+        const serverCode =
+          typeof failure?.code === "string" ? ` (${failure.code})` : "";
         console.warn(
-          `[cloudsync] upload failed with status ${response.status}... /ᐠ - ˕ -マ`,
+          `[cloudsync] upload failed with status ${response.status}${serverCode}... /ᐠ - ˕ -マ`,
+          typeof failure?.error === "string" ? failure.error : "",
         );
         if (
           (response.status === 429 || response.status >= 500) &&

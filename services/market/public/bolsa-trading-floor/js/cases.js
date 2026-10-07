@@ -369,7 +369,6 @@ const CaseGame = {
     saveGame();
     updatePerformancePanel();
     renderPositions();
-    renderTransactions();
     if(typeof updateHud === 'function') updateHud();
     if(typeof Achievements !== 'undefined') Achievements.check();
   },

@@ -15,7 +15,7 @@ use axum::{
 use mimalloc::MiMalloc;
 use moka::future::Cache;
 use serde::Deserialize;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
@@ -159,7 +159,11 @@ async fn main() {
         )
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], settings.port));
+    let ip = settings
+        .host
+        .parse::<IpAddr>()
+        .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    let addr = SocketAddr::new(ip, settings.port);
     tracing::info!("isao listening on {}{}", addr, POSITIVE);
     let listener = tokio::net::TcpListener::bind(addr)
         .await

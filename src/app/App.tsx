@@ -10,6 +10,8 @@ import SearchBar from "../components/browser/SearchBar.tsx";
 import Bookmarks from "../components/browser/Bookmarks.tsx";
 import Footer from "../components/layout/Footer.tsx";
 import TopBar from "../components/browser/TopBar.tsx";
+import { chatPanelOpen } from "../components/chat/chatState.ts";
+import { useSignalEffect } from "@preact/signals";
 import { closeStage } from "../core/browser/stageOverlay.ts";
 import hachiiUrl from "../assets/images/peaks/hachii.webp";
 import konaUrl from "../assets/images/peaks/kona.webp";
@@ -17,6 +19,7 @@ import osaUrl from "../assets/images/peaks/osa.webp";
 import azuUrl from "../assets/images/peaks/azu.webp";
 import {
   loadAnimeCatalog,
+  loadChatPanel,
   loadGamesCatalog,
   loadMusicCatalog,
   loadNewTabModal,
@@ -58,6 +61,7 @@ function getRandomPeakIndex(): number {
 const GamesCatalog = lazy(loadGamesCatalog);
 const AnimeCatalog = lazy(loadAnimeCatalog);
 const MusicCatalog = lazy(loadMusicCatalog);
+const ChatCatalog = lazy(loadChatPanel);
 const NewTabModal = lazy(loadNewTabModal);
 const SettingsModal = lazy(loadSettingsModal);
 
@@ -65,24 +69,36 @@ export default function App() {
   const [gamesMounted, setGamesMounted] = useState(false);
   const [animeMounted, setAnimeMounted] = useState(false);
   const [musicMounted, setMusicMounted] = useState(false);
+  const [chatMounted, setChatMounted] = useState(false);
   const [newTabMounted, setNewTabMounted] = useState(false);
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [peakIndex] = useState(getRandomPeakIndex);
+
+  // el panel de chat se monta la primera vez que se abre (y se queda montado, su
+  // visibilidad la lleva el propio signal). Así el shell no carga el iframe del
+  // chat hasta que el usuario lo pide.
+  useSignalEffect(() => {
+    if (chatPanelOpen.value) setChatMounted(true);
+  });
 
   useEffect(() => {
     // cada seccion arranca cerrando el visor: sus menus se dibujan por debajo
     // de la pantalla del visor, asi que sin esto un clic en "games" con el
     // visor abierto no movia nada y pareceria que el boton esta roto
+    // abrir un menú cierra el chat: son excluyentes, como lo son entre ellos
     const showGames = () => {
       closeStage();
+      chatPanelOpen.value = false;
       setGamesMounted(true);
     };
     const showAnime = () => {
       closeStage();
+      chatPanelOpen.value = false;
       setAnimeMounted(true);
     };
     const showMusic = () => {
       closeStage();
+      chatPanelOpen.value = false;
       setMusicMounted(true);
     };
     const showNewTab = () => {
@@ -156,6 +172,11 @@ export default function App() {
         {musicMounted && (
           <Suspense fallback={null}>
             <MusicCatalog openOnMount />
+          </Suspense>
+        )}
+        {chatMounted && (
+          <Suspense fallback={null}>
+            <ChatCatalog openOnMount />
           </Suspense>
         )}
         <div id="iframe-container">

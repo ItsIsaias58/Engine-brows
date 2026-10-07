@@ -87,6 +87,30 @@ import {
 } from './accounts.mjs';
 import { resolveSsoAccount, sessionTokenFromRequest, verifySessionToken } from './sso.mjs';
 import { createJsonStore } from './store.mjs';
+import { createMusicBridge } from './music.mjs';
+import {
+  GLOBAL_CHANNEL,
+  acceptFriend,
+  activeBan,
+  allMessages,
+  applyBan,
+  auditLog,
+  channelMembers,
+  channelsFor,
+  chatKey,
+  createChatStore,
+  createGroup,
+  deleteMessage,
+  ensureGlobalChannel,
+  liftBan,
+  messagesFor,
+  openDm,
+  postMessage,
+  relationsFor,
+  removeFriend,
+  requestFriend,
+  restoreChatStore,
+} from './chat.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 4006;
@@ -198,6 +222,12 @@ export function createMarketServer(options = {}) {
   let tickMs = clampTickMs(options.tickMs ?? process.env.MARKET_TICK_MS);
   const dataDir = options.dataDir ?? process.env.MARKET_DATA_DIR ?? path.join(HERE, 'data');
 
+  // puente de búsqueda de música (youtube innertube + spotify client credentials)
+  const music = createMusicBridge({
+    spotifyClientId: options.spotifyClientId,
+    spotifyClientSecret: options.spotifyClientSecret,
+  });
+
   // SSO con cloudsync: el mercado acepta el mismo JWT que firma cloudsync como
   // segunda vía de sesión. el secreto es el de cloudsync; sin él el SSO queda
   // apagado y solo funciona el registro propio de siempre (aditivo, no rompe
@@ -238,6 +268,10 @@ export function createMarketServer(options = {}) {
     fallback: () => createAccountStore(),
     delay: 2500,
   });
+  const chatStoreFile = createJsonStore(path.join(dataDir, 'chat.json'), {
+    fallback: () => createChatStore(),
+    delay: 2500,
+  });
 
   const market = restoreMarketState(marketStore.load());
   market.intervalMs = tickMs;
@@ -261,6 +295,8 @@ export function createMarketServer(options = {}) {
   backfillHistory(market);
 
   const accounts = restoreAccountStore(accountStoreFile.load());
+  const chat = restoreChatStore(chatStoreFile.load());
+  ensureGlobalChannel(chat);
   // the allow-list is the source of truth: whoever is on it is an admin, and
   // everyone else is cleared even if the stored flag said otherwise. the change
   // is written back so the file does not keep a stale flag around
@@ -287,6 +323,10 @@ export function createMarketServer(options = {}) {
     accountStoreFile.set(accounts);
   }
 
+  function persistChat() {
+    chatStoreFile.set(chat);
+  }
+
   // the re-applied allow-list is flushed right away, so a grant (or a
   // revocation) is visible in players.json without waiting for a login
   if (adminFlagsChanged) persistAccounts();
@@ -300,6 +340,25 @@ export function createMarketServer(options = {}) {
         clients.delete(socket);
       }
     }
+  }
+
+  // envía un payload YA serializado a todos los sockets de UNA cuenta. El cash,
+  // el inventario y el feed de finanzas son de cada quien: esto nunca se hace en
+  // broadcast. Devuelve cuántos sockets recibieron.
+  function sendToAccountSockets(displayName, text) {
+    if (!displayName) return 0;
+    let sent = 0;
+    for (const socket of clients) {
+      try {
+        if (!socket.data?.authorized) continue;
+        if (socket.data?.accountName !== displayName) continue;
+        socket.send(text);
+        sent += 1;
+      } catch {
+        clients.delete(socket);
+      }
+    }
+    return sent;
   }
 
   // server-authoritative money: every admin override of a portfolio (grant,
@@ -331,28 +390,29 @@ export function createMarketServer(options = {}) {
       title: 'Cuenta actualizada',
       msg: 'El administrador ajustó tu cuenta. Sincronizado con el servidor.',
     });
-    for (const socket of clients) {
-      try {
-        if (!socket.data?.authorized) continue;
-        // the socket knows who owns it via the auth'd display name on data
-        if (socket.data?.accountName && socket.data.accountName !== displayName) continue;
-        socket.send(text);
-      } catch {
-        clients.delete(socket);
-      }
-    }
+    sendToAccountSockets(displayName, text);
   }
 
   // cuenta por token de mercado, o si no la hay por el JWT de cloudsync de la
   // cookie `token`. devuelve { account, created }.
+  // una cuenta con ban de cuenta activo no resuelve sesión: la sanción corta el
+  // acceso a TODOS los owngames, no sólo al chat. Los admins quedan exentos
+  // para poder levantar la sanción.
+  function withBanCheck(resolved) {
+    if (resolved.account && !adminNames.has(accountKey(resolved.account.name))) {
+      if (activeBan(chat, resolved.account.name, 'account')) return { account: null, created: false };
+    }
+    return resolved;
+  }
+
   function resolveRequestAccount(req, marketToken) {
     const byToken = authenticate(accounts, marketToken);
-    if (byToken) return { account: byToken, created: false };
+    if (byToken) return withBanCheck({ account: byToken, created: false });
     if (!ssoSecret) return { account: null, created: false };
     const claims = verifySessionToken(sessionTokenFromRequest(req), ssoSecret);
     if (!claims) return { account: null, created: false };
     const resolved = resolveSsoAccount(accounts, claims.username);
-    return resolved ?? { account: null, created: false };
+    return withBanCheck(resolved ?? { account: null, created: false });
   }
 
   function authenticatedAccount(req) {
@@ -464,16 +524,7 @@ export function createMarketServer(options = {}) {
   function notifyAccountFinance(displayName, entries) {
     if (!displayName || !Array.isArray(entries) || !entries.length) return;
     const text = JSON.stringify({ type: 'finance', finance: { notices: [[displayName, entries]] } });
-    for (const socket of clients) {
-      try {
-        if (!socket.data?.authorized) continue;
-        // el dinero es de cada quien: el feed sólo viaja al socket del dueño
-        if (socket.data?.accountName !== displayName) continue;
-        socket.send(text);
-      } catch {
-        clients.delete(socket);
-      }
-    }
+    sendToAccountSockets(displayName, text);
   }
 
   function notifyFinance(notices) {
@@ -490,11 +541,75 @@ export function createMarketServer(options = {}) {
   function pushSkinsUpdate(displayName, kind, extra = {}) {
     if (!displayName) return;
     const text = JSON.stringify(skinsUpdateEvent(kind, extra));
+    sendToAccountSockets(displayName, text);
+  }
+
+  // ------------------------------------------------ chat (comunidad owngames)
+  function displayNameFor(key) {
+    const acc = accounts.accounts[chatKey(key)];
+    return acc ? acc.name : String(key);
+  }
+
+  // vista pública de un canal para UN espectador: en un DM el título es el
+  // nombre del otro; los grupos muestran su lista de miembros.
+  function publicChannel(ch, viewerName) {
+    const viewerKey = chatKey(viewerName);
+    const members = ch.kind === 'global' ? [] : ch.members.map(displayNameFor);
+    let title = ch.title;
+    if (ch.kind === 'dm') {
+      const other = ch.members.find((k) => k !== viewerKey);
+      title = other ? displayNameFor(other) : '';
+    }
+    return { id: ch.id, kind: ch.kind, title, members, createdAt: ch.createdAt };
+  }
+
+  function isChannelMember(ch, name) {
+    return ch.kind === 'global' || ch.members.includes(chatKey(name));
+  }
+
+  function isOnline(key) {
+    for (const socket of clients) {
+      if (socket.data?.authorized && chatKey(socket.data.accountName || '') === key) return true;
+    }
+    return false;
+  }
+
+  function friendsView(name) {
+    const rel = relationsFor(chat, name);
+    return {
+      friends: rel.friends.map((k) => ({ name: displayNameFor(k), online: isOnline(k) })),
+      requests: rel.requests.map(displayNameFor),
+    };
+  }
+
+  // reparte un mensaje SÓLO a los sockets de los miembros del canal: el global
+  // va a todos los autenticados, un DM/grupo sólo a sus miembros (la privacidad
+  // no se delega al cliente).
+  function pushChatMessage(channelId, message) {
+    const members = channelMembers(chat, channelId);
+    if (!members) return;
+    const text = JSON.stringify({ type: 'chat', channel: channelId, message });
+    const targets = members === 'global' ? null : new Set(members);
     for (const socket of clients) {
       try {
         if (!socket.data?.authorized) continue;
-        if (socket.data?.accountName !== displayName) continue;
+        if (targets && !targets.has(chatKey(socket.data.accountName || ''))) continue;
         socket.send(text);
+      } catch {
+        clients.delete(socket);
+      }
+    }
+  }
+
+  // avisa a los miembros que apareció un canal nuevo (un DM o un grupo)
+  function pushChatChannel(ch) {
+    const targets = ch.kind === 'global' ? null : new Set(ch.members);
+    for (const socket of clients) {
+      try {
+        if (!socket.data?.authorized) continue;
+        const key = chatKey(socket.data.accountName || '');
+        if (targets && !targets.has(key)) continue;
+        socket.send(JSON.stringify({ type: 'chat-channel', channel: publicChannel(ch, socket.data.accountName) }));
       } catch {
         clients.delete(socket);
       }
@@ -618,19 +733,11 @@ export function createMarketServer(options = {}) {
       delete accounts.sessions[token];
       kicked += 1;
     }
-  if (kicked) {
-    persistAccounts();
-    for (const socket of clients) {
-      try {
-        if (!socket.data?.authorized) continue;
-        if (socket.data?.accountName !== account.name) continue;
-        socket.send(JSON.stringify({ type: 'kicked', reason: 'El administrador cerró tu sesión' }));
-      } catch {
-        clients.delete(socket);
-      }
+    if (kicked) {
+      persistAccounts();
+      sendToAccountSockets(account.name, JSON.stringify({ type: 'kicked', reason: 'El administrador cerró tu sesión' }));
     }
-  }
-  return kicked;
+    return kicked;
   }
 
   // the ranking reads the stored portfolios against the live quotes on demand,
@@ -698,7 +805,7 @@ export function createMarketServer(options = {}) {
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>owngames</title><style>body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef5;margin:0;padding:48px}a{color:#29e0a8;text-decoration:none}ul{list-style:none;padding:0;display:grid;gap:12px;max-width:560px}li{background:#131a22;border:1px solid #223040;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:4px}span{color:#8aa0b4;font-size:13px}</style></head><body><h1>owngames</h1><ul>${rows}</ul></body></html>`;
   }
 
-  async function serveStatic(pathname) {
+  async function serveStatic(pathname, req) {
     const rel = pathname.slice('/owngames/'.length);
     const target = rel.endsWith('/') ? `${rel}index.html` : rel;
     const filePath = safeJoin(publicDir, target);
@@ -708,308 +815,28 @@ export function createMarketServer(options = {}) {
     if (!(await file.exists())) {
       return new Response('not found', { status: 404 });
     }
-    return new Response(file, {
-      headers: {
-        'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
-        'Cache-Control': target.endsWith('.html') ? 'no-store' : 'no-cache',
-      },
-    });
-  }
-
-  // ---------------------------------------------------------------- puente de búsqueda de música
-  // el navegador no puede llamar a youtube directamente (CORS), así que el
-  // servicio hace de puente: consulta la API pública innertube de youtube y
-  // devuelve los primeros vídeos como {id,title,channel}. caché LRU de 10 min
-  // para no golpear a youtube con la misma búsqueda una y otra vez.
-  const MUSIC_SEARCH_UA =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-  const musicSearchCache = new Map(); // q -> { t, results }
-  const MUSIC_SEARCH_TTL_MS = 10 * 60 * 1000;
-
-  function musicSearchResultsFromPayload(payload) {
-    const contents =
-      payload?.contents?.twoColumnSearchResultsRenderer?.primaryContents
-        ?.sectionListRenderer?.contents || [];
-    for (const section of contents) {
-      const items = section?.itemSectionRenderer?.contents || [];
-      const results = [];
-      for (const item of items) {
-        const v = item?.videoRenderer;
-        const id = v?.videoId;
-        if (!id) continue;
-        const title =
-          v?.title?.runs?.map((r) => r.text).join('') || v?.title?.simpleText || '';
-        const channel = v?.ownerText?.runs?.[0]?.text || '';
-        if (!title) continue;
-        results.push({ id, title, channel });
-        if (results.length >= 8) break;
-      }
-      if (results.length) return results;
-    }
-    return [];
-  }
-
-  // videos relacionados de un video ("up next"): el mismo innertube /next que
-  // usa la pagina de watch de youtube para su lista de recomendados.
-  // soporta el formato nuevo (lockupViewModel) y el viejo (compactVideoRenderer).
-  function musicRelatedFromPayload(payload) {
-    const sec =
-      payload?.contents?.twoColumnWatchNextResults?.secondaryResults?.secondaryResults;
-    const items = sec?.results || sec?.items || [];
-    const results = [];
-    for (const item of items) {
-      // formato nuevo (2024+): lockupViewModel
-      const lv = item?.lockupViewModel;
-      if (lv && lv.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO') {
-        const id = lv.contentId;
-        const title = lv?.metadata?.lockupMetadataViewModel?.title?.content || '';
-        const parts =
-          lv?.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel
-            ?.metadataRows?.flatMap((r) => r.metadataParts || []) || [];
-        const channel = parts[0]?.text?.content || '';
-        if (!id || !title) continue;
-        results.push({ id, title, channel });
-        if (results.length >= 15) break;
-        continue;
-      }
-      // formato viejo: compactVideoRenderer
-      const v = item?.compactVideoRenderer;
-      if (v) {
-        const id = v.videoId;
-        const title =
-          v?.title?.simpleText || v?.title?.runs?.map((r) => r.text).join('') || '';
-        const channel =
-          v?.shortBylineText?.runs?.[0]?.text ||
-          v?.longBylineText?.runs?.[0]?.text ||
-          v?.author?.simpleText ||
-          '';
-        if (!id || !title) continue;
-        results.push({ id, title, channel });
-        if (results.length >= 15) break;
-      }
-    }
-    return results;
-  }
-
-  async function relatedYouTube(videoId) {
-    if (!/^[\w-]{11}$/.test(videoId)) return [];
-    const key = `related:${videoId}`;
-    const cached = musicSearchCache.get(key);
-    if (cached && Date.now() - cached.t < MUSIC_SEARCH_TTL_MS) return cached.results;
-    try {
-      const res = await globalThis.fetch('https://www.youtube.com/youtubei/v1/next?prettyPrint=false', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': MUSIC_SEARCH_UA,
-          'Accept-Language': 'es-MX,es;q=0.9,en;q=0.7',
-        },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'WEB',
-              clientVersion: '2.20240101.00.00',
-              hl: 'es',
-              gl: 'MX',
-            },
-          },
-          videoId,
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return [];
-      const results = musicRelatedFromPayload(await res.json());
-      if (results.length) {
-        musicSearchCache.set(key, { t: Date.now(), results });
-        if (musicSearchCache.size > 100) {
-          const oldest = musicSearchCache.keys().next().value;
-          if (oldest !== undefined) musicSearchCache.delete(oldest);
-        }
-      }
-      return results;
-    } catch (err) {
-      console.warn('[music-related] fallo:', err?.message || err);
-      return [];
-    }
-  }
-
-  // ---------------------------------------------------------------- spotify
-  // La búsqueda de spotify SI necesita credenciales, y no es un capricho:
-  //   - el embed oficial no tiene vista de búsqueda (/embed/search/... devuelve
-  //     404), así que no se puede buscar desde el reproductor;
-  //   - el navegador no puede llamar a api.spotify.com (CORS) igual que
-  //     pasaba con youtube, y open.spotify.com no expone un endpoint público de
-  //     búsqueda.
-  // Se usa el flujo oficial de client credentials: no pide cuenta de usuario,
-  // ni scopes de usuario, ni login. Sin credenciales la ruta responde
-  // `configured: false` en vez de fingir que no hay resultados, para que el menu
-  // pueda decir qué falta en vez de quedarse en silencio.
-  const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
-  const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
-  const spotifyClientId = options.spotifyClientId ?? process.env.SPOTIFY_CLIENT_ID ?? '';
-  const spotifyClientSecret = options.spotifyClientSecret ?? process.env.SPOTIFY_CLIENT_SECRET ?? '';
-  const spotifyConfigured = Boolean(spotifyClientId && spotifyClientSecret);
-  // credenciales que spotify ha rechazado. se recuerda porque un id malo no se
-  // arregla reiniciando: sin esto, cada busqueda volveria a fallar con un 401
-  // y el menu solo podria mostrar "sin resultados", que es justo la confusion
-  // que este puente evita
-  let spotifyAuthFailed = false;
-  let spotifyToken = null; // { token, expiresAt }
-
-  function spotifyUnconfigured() {
-    return { configured: false, failed: false, results: [] };
-  }
-
-  // fallo transitorio (red, 429, 5xx): las credenciales pueden estar bien, asi
-  // que se distingue de "no hay nada que buscar"
-  function spotifyFailed() {
-    return { configured: true, failed: true, results: [] };
-  }
-
-  async function spotifyAccessToken() {
-    if (!spotifyConfigured || spotifyAuthFailed) return null;
-    // se renueva un minuto antes de expirar: un token que caduca en mitad de
-    // una busqueda devuelve un 401 que no se puede distinguir de un fallo real
-    if (spotifyToken && spotifyToken.expiresAt > Date.now()) return spotifyToken.token;
-    const basic = Buffer.from(`${spotifyClientId}:${spotifyClientSecret}`).toString('base64');
-    const res = await globalThis.fetch(SPOTIFY_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${basic}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: 'grant_type=client_credentials',
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      // 400/401/403 es un rechazo de las credenciales; el resto (429, 5xx, red)
-      // es pasajero y no dice nada del id del cliente
-      if ([400, 401, 403].includes(res.status)) {
-        spotifyAuthFailed = true;
-        console.warn(
-          `[spotify-search] spotify rechazo las credenciales (${res.status}); revisa SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET`,
-        );
-        return null;
-      }
-      console.warn(`[spotify-search] el token no se pudo pedir (${res.status})`);
-      return null;
-    }
-    const payload = await res.json();
-    if (!payload?.access_token) return null;
-    spotifyToken = {
-      token: payload.access_token,
-      expiresAt: Date.now() + Number(payload.expires_in || 3600) * 1000 - 60_000,
+    const isHtml = target.endsWith('.html');
+    const headers = {
+      'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+      'Cache-Control': isHtml ? 'no-store' : 'no-cache',
     };
-    return spotifyToken.token;
-  }
-
-  function spotifyResultsFromPayload(payload) {
-    const items = Array.isArray(payload?.tracks?.items) ? payload.tracks.items : [];
-    const results = [];
-    for (const track of items) {
-      // el embed construye la url con este id: si no parece un id de spotify
-      // (base62) mejor no devolverlo que abrir un embed roto
-      if (!/^[A-Za-z0-9]{10,}$/.test(track?.id || '')) continue;
-      const artists = (track.artists || [])
-        .map((artist) => artist?.name)
-        .filter(Boolean)
-        .join(', ');
-      results.push({
-        id: track.id,
-        title: track.name || '',
-        channel: artists,
-        kind: 'track',
-      });
-      if (results.length >= 8) break;
-    }
-    return results;
-  }
-
-  async function searchSpotify(query) {
-    // sin id/clave, o con un id que spotify ya rechazo: falta configuracion, y
-    // eso lo puede arreglar el usuario poniendo las variables
-    if (!spotifyConfigured || spotifyAuthFailed) return spotifyUnconfigured();
-    // la clave incluye la fuente: sin el prefijo, buscar la misma cadena en
-    // youtube y en spotify devolveria la cache de la otra
-    const key = `spotify:${query.trim().toLowerCase()}`;
-    const cached = musicSearchCache.get(key);
-    if (cached && Date.now() - cached.t < MUSIC_SEARCH_TTL_MS) {
-      return { configured: true, failed: false, results: cached.results };
-    }
-    const token = await spotifyAccessToken();
-    if (!token) {
-      return spotifyAuthFailed ? spotifyUnconfigured() : spotifyFailed();
-    }
-    try {
-      const res = await globalThis.fetch(
-        `${SPOTIFY_API_BASE}/search?type=track&limit=8&q=${encodeURIComponent(query.trim())}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(8000),
-        },
-      );
-      if (!res.ok) {
-        console.warn(`[spotify-search] la API respondio ${res.status}`);
-        return spotifyFailed();
-      }
-      const results = spotifyResultsFromPayload(await res.json());
-      if (results.length) {
-        musicSearchCache.set(key, { t: Date.now(), results });
-        if (musicSearchCache.size > 100) {
-          const oldest = musicSearchCache.keys().next().value;
-          if (oldest !== undefined) musicSearchCache.delete(oldest);
+    // ETag barato (tamaño + mtime) para los estaticos: sin el, `no-cache` obliga
+    // a reenviar el cuerpo ENTERO en cada revalidacion (el service worker y el
+    // navegador no podian pedir "¿cambio?" y recibir un 304). con el tag, una
+    // visita repetida cuesta un 304 sin cuerpo en vez de los ~570 KB de shell.
+    if (!isHtml) {
+      try {
+        const st = fs.statSync(filePath);
+        const etag = `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+        headers.ETag = etag;
+        if (req && req.headers.get('if-none-match') === etag) {
+          return new Response(null, { status: 304, headers });
         }
+      } catch {
+        // sin stat no hay tag: se sirve el archivo como siempre
       }
-      return { configured: true, failed: false, results };
-    } catch (err) {
-      console.warn('[spotify-search] fallo la búsqueda:', err?.message || err);
-      return spotifyFailed();
     }
-  }
-
-  async function searchYouTube(query) {
-    if (!query.trim()) return [];
-    const key = `youtube:${query.trim().toLowerCase()}`;
-    const cached = musicSearchCache.get(key);
-    if (cached && Date.now() - cached.t < MUSIC_SEARCH_TTL_MS) return cached.results;
-    try {
-      // ojo: este archivo define su propio `function fetch(req, server)` para
-      // Bun.serve, que hace sombra al fetch global dentro de este scope;
-      // hay que llamar explicitamente a globalThis.fetch.
-      const res = await globalThis.fetch('https://www.youtube.com/youtubei/v1/search?prettyPrint=false', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': MUSIC_SEARCH_UA,
-          'Accept-Language': 'es-MX,es;q=0.9,en;q=0.7',
-        },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'WEB',
-              clientVersion: '2.20240101.00.00',
-              hl: 'es',
-              gl: 'MX',
-            },
-          },
-          query: query.trim(),
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return [];
-      const results = musicSearchResultsFromPayload(await res.json());
-      if (results.length) {
-        musicSearchCache.set(key, { t: Date.now(), results });
-        if (musicSearchCache.size > 100) {
-          const oldest = musicSearchCache.keys().next().value;
-          if (oldest !== undefined) musicSearchCache.delete(oldest);
-        }
-      }
-      return results;
-    } catch (err) {
-      console.warn('[music-search] fallo la búsqueda:', err?.message || err);
-      return [];
-    }
+    return new Response(file, { headers });
   }
 
   async function handleApi(req, url, server) {
@@ -1037,21 +864,21 @@ export function createMarketServer(options = {}) {
         return json({ source, configured: true, failed: false, results: [] });
       }
       if (source === 'spotify') {
-        const { configured, failed, results } = await searchSpotify(q);
+        const { configured, failed, results } = await music.searchSpotify(q);
         return json({ source, configured, failed, results });
       }
       return json({
         source,
         configured: true,
         failed: false,
-        results: await searchYouTube(q),
+        results: await music.searchYouTube(q),
       });
     }
 
     // "up next" de un video: recomendados reales de youtube para la cola
     if (pathname === '/api/market/music/related' && method === 'GET') {
       const id = (url.searchParams.get('v') || '').slice(0, 24);
-      const results = await relatedYouTube(id);
+      const results = await music.relatedYouTube(id);
       return json({ results });
     }
 
@@ -1139,6 +966,10 @@ export function createMarketServer(options = {}) {
       }
       const result = loginAccount(accounts, body.name, body.password);
       if (!result.ok) return json({ error: result.error }, 401);
+      const ban = activeBan(chat, result.account.name, 'account');
+      if (ban && !adminNames.has(accountKey(result.account.name))) {
+        return json({ error: ban.reason ? `cuenta suspendida: ${ban.reason}` : 'cuenta suspendida', until: ban.until || 0 }, 403);
+      }
       persistAccounts();
       return json({ token: result.token, account: publicAccount(accounts, result.account) });
     }
@@ -1184,6 +1015,45 @@ export function createMarketServer(options = {}) {
     // every /admin route answers 403 and the game console falls back to local mode
     if (pathname.startsWith('/api/market/admin/')) {
       if (!adminConsole.isAdmin(account)) return json({ error: 'solo administradores' }, 403);
+      // moderación del chat: vive aquí (y no en admin.mjs) para no acoplar la
+      // consola del mercado con el store de comunidad
+      if (pathname.startsWith('/api/market/admin/chat')) {
+        const chatBody = method === 'GET' ? {} : await readJson(req).catch(() => ({}));
+        if (pathname === '/api/market/admin/chat/messages' && method === 'GET') {
+          const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get('limit') || '300', 10) || 300, 1), 1000);
+          return json({
+            messages: allMessages(chat, limit),
+            channels: Object.values(chat.channels).map((ch) => publicChannel(ch, account.name)),
+          });
+        }
+        if (pathname === '/api/market/admin/chat/ban' && method === 'POST') {
+          const scope = chatBody.scope === 'account' ? 'account' : 'chat';
+          const r = applyBan(chat, chatBody.name, scope, Number(chatBody.durationMs) || 0, chatBody.reason, account.name);
+          if (!r.ok) return json({ error: r.error }, 400);
+          persistChat();
+          if (scope === 'account') {
+            const target = accounts.accounts[accountKey(chatBody.name)];
+            if (target) kickPlayer(target);
+          }
+          return json({ ok: true, entry: r.entry, scope });
+        }
+        if (pathname === '/api/market/admin/chat/unban' && method === 'POST') {
+          const scope = chatBody.scope === 'account' ? 'account' : 'chat';
+          const r = liftBan(chat, chatBody.name, scope, account.name);
+          if (!r.ok) return json({ error: r.error }, 400);
+          persistChat();
+          return json({ ok: true, scope });
+        }
+        if (pathname === '/api/market/admin/chat/delete' && method === 'POST') {
+          deleteMessage(chat, Number(chatBody.messageId) || 0);
+          persistChat();
+          return json({ ok: true });
+        }
+        if (pathname === '/api/market/admin/chat/audit' && method === 'GET') {
+          return json({ audit: auditLog(chat) });
+        }
+        return json({ error: 'not found' }, 404);
+      }
       const adminBody = method === 'GET'
         ? { since: Number.parseInt(url.searchParams.get('since') || '0', 10) }
         : await readJson(req).catch(() => ({}));
@@ -1192,6 +1062,68 @@ export function createMarketServer(options = {}) {
       // fallar (sondeo inexistente, ya cerrado) y eso no es un 200 con error
       if (result && result.status) return json(result.body, result.status);
       return json(result ?? { error: 'not found' });
+    }
+
+    // ---- chat: la comunidad de owngames (requiere sesión) -----------------
+    // La identidad es la cuenta del market: sólo con sesión se lee y escribe.
+    if (pathname === '/api/market/chat/channels' && method === 'GET') {
+      return json({ channels: channelsFor(chat, account.name).map((ch) => publicChannel(ch, account.name)) });
+    }
+
+    if (pathname === '/api/market/chat/channels' && method === 'POST') {
+      const body = await readJson(req).catch(() => ({}));
+      if (body.kind === 'dm') {
+        const withName = String(body.with || '');
+        if (!accounts.accounts[chatKey(withName)]) return json({ error: 'cuenta desconocida' }, 404);
+        const ch = openDm(chat, account.name, withName);
+        persistChat();
+        pushChatChannel(ch);
+        return json({ ok: true, channel: publicChannel(ch, account.name) });
+      }
+      if (body.kind === 'group') {
+        const members = (Array.isArray(body.members) ? body.members : []).filter((n) => accounts.accounts[chatKey(n)]);
+        const ch = createGroup(chat, account.name, body.title, members);
+        persistChat();
+        pushChatChannel(ch);
+        return json({ ok: true, channel: publicChannel(ch, account.name) });
+      }
+      return json({ error: 'tipo de canal inválido' }, 400);
+    }
+
+    if (pathname === '/api/market/chat/messages' && method === 'GET') {
+      const channelId = url.searchParams.get('channel') || GLOBAL_CHANNEL;
+      const ch = chat.channels[channelId];
+      if (!ch || !isChannelMember(ch, account.name)) return json({ error: 'canal desconocido' }, 404);
+      const since = Number.parseInt(url.searchParams.get('since') || '0', 10) || 0;
+      return json({ channel: publicChannel(ch, account.name), messages: messagesFor(chat, channelId, since) });
+    }
+
+    if (pathname === '/api/market/chat/send' && method === 'POST') {
+      const body = await readJson(req).catch(() => ({}));
+      const channelId = body.channel || GLOBAL_CHANNEL;
+      const r = postMessage(chat, channelId, account.name, body.text);
+      if (!r.ok) return json({ error: r.error }, r.error === 'canal desconocido' ? 404 : 403);
+      persistChat();
+      pushChatMessage(channelId, r.message);
+      return json({ ok: true, message: r.message });
+    }
+
+    if (pathname === '/api/market/chat/friends' && method === 'GET') {
+      return json(friendsView(account.name));
+    }
+
+    if (pathname === '/api/market/chat/friends' && method === 'POST') {
+      const body = await readJson(req).catch(() => ({}));
+      const name = String(body.name || '');
+      if (!accounts.accounts[chatKey(name)]) return json({ error: 'cuenta desconocida' }, 404);
+      let r;
+      if (body.action === 'request') r = requestFriend(chat, account.name, name);
+      else if (body.action === 'accept') r = acceptFriend(chat, account.name, name);
+      else if (body.action === 'remove') r = removeFriend(chat, account.name, name);
+      else return json({ error: 'acción inválida' }, 400);
+      if (!r.ok) return json({ error: r.error }, 400);
+      persistChat();
+      return json({ ok: true, ...friendsView(account.name) });
     }
 
     if (pathname === '/api/market/me' && method === 'GET') {
@@ -1718,7 +1650,7 @@ export function createMarketServer(options = {}) {
         },
       });
     }
-    if (pathname.startsWith('/owngames/')) return serveStatic(pathname);
+    if (pathname.startsWith('/owngames/')) return serveStatic(pathname, req);
 
     if (pathname.startsWith('/api/market/')) return handleApi(req, url, server);
 
@@ -1802,6 +1734,7 @@ export function createMarketServer(options = {}) {
     marketStore.flush();
     history.flush();
     accountStoreFile.flush();
+    chatStoreFile.flush();
   }
 
   function stop() {

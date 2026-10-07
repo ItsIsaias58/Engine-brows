@@ -17,6 +17,10 @@ import {
   mountRivetNewTabOverride,
 } from "../core/proxy/rivetBridge.ts";
 import { getStoredGameSource } from "../core/config/settingsOptions.ts";
+import {
+  focusFrameSoon,
+  markFrameFocusable,
+} from "../core/browser/frameFocus.ts";
 
 function proxyGameFavicon(icon: string): string {
   if (!icon || icon.startsWith("/")) return icon;
@@ -241,9 +245,19 @@ export const store = {
     const wrapper = document.createElement("div");
     wrapper.className = "iframe";
     const iframe = document.createElement("iframe");
-    iframe.allow = "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; cross-origin-isolated;";
+    // gamepad va explicito: algunos juegos (los de tipo minecraft) lo piden y
+    // sin el permiso delegado al frame el request falla en silencio y el juego
+    // se queda en su menu de "back to game". delegarlo es inocuo: sin una
+    // Permissions-Policy que lo restrinja, el mismo origen ya lo tenia permitido.
+    // ojo: el pointer lock NO es una feature de Permissions-Policy (Chrome avisa
+    // "Unrecognized feature: 'pointer-lock'"): se controla con el token de sandbox
+    // `allow-pointer-lock`, y como estos frames no van sandboxeados ya lo tienen.
+    iframe.allow =
+      "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; gamepad; cross-origin-isolated;";
     iframe.referrerPolicy = "no-referrer";
-    iframe.tabIndex = -1;
+    // focusable (tabindex -1 + data-lyra-focusable): sin la marca,
+    // isGameFrameFocused() daba false y el modal le robaba el teclado al juego
+    markFrameFocusable(iframe);
     wrapper.appendChild(iframe);
     const container = document.getElementById("iframe-container");
     if (container) container.appendChild(wrapper);
@@ -404,6 +418,9 @@ export const store = {
     }
 
     this.updateIframeView();
+    // al activar un juego, devolverle el teclado: cambiar de pestana dejaba el
+    // foco en el documento padre y el juego se quedaba mudo
+    if (activeTab?.isGame) focusFrameSoon(activeTab.iframe);
     if (this.activeTabId !== previousActiveId && this.activeTabId !== null) {
       getRivet()?.notifyTabActivated(this.activeTabId);
     }

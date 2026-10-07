@@ -1,12 +1,45 @@
 use crate::NEGATIVE;
-use axum::extract::ws::{Message, WebSocket};
+use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use axum::http::HeaderMap;
-use futures_util::{sink::SinkExt, stream::StreamExt};
+use futures_util::{
+    sink::SinkExt,
+    stream::{SplitSink, StreamExt},
+};
+use std::time::Duration;
+use tokio::time::timeout;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{handshake::client::generate_key, protocol::Message as TungsteniteMessage},
 };
 use url::Url;
+
+// Un upstream que no contesta (ni acepta ni rechaza) dejaba la conexion del
+// cliente colgada para siempre. El handshake de WebSocket es rapido o no es.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+// 1011 "internal error" es lo que corresponde cuando el problema esta del lado
+// de arriba (502, DNS caido, timeout), y le dice al navegador que puede
+// reconectar en vez de tratarlo como un corte de red.
+const UPSTREAM_CLOSE_CODE: u16 = 1011;
+
+/// Cierra la conexion del cliente con codigo y motivo.
+///
+/// Sin esto, cuando `connect_async` fallaba el socket se soltaba de golpe: el
+/// navegador veia un cierre anormal (ECONNRESET) en vez de un `onclose` limpio,
+/// y el relayer de node registraba `websocket forwarding failed` en cada
+/// reintento de la pagina. Con un frame de cierre el cliente sabe QUE paso y
+/// puede decidir si reintenta.
+async fn close_client(
+    sender: &mut SplitSink<WebSocket, Message>,
+    code: u16,
+    reason: &'static str,
+) {
+    let _ = sender
+        .send(Message::Close(Some(CloseFrame {
+            code,
+            reason: reason.into(),
+        })))
+        .await;
+}
 
 pub async fn handle_socket(client_socket: WebSocket, target_url: String, headers: HeaderMap) {
     let (mut client_sender, mut client_receiver) = client_socket.split();
@@ -37,10 +70,30 @@ pub async fn handle_socket(client_socket: WebSocket, target_url: String, headers
 
     let request = request.body(()).unwrap();
 
-    let (ws_stream, _) = match connect_async(request).await {
-        Ok(s) => s,
-        Err(e) => {
+    let (ws_stream, _) = match timeout(CONNECT_TIMEOUT, connect_async(request)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
             tracing::warn!("websocket connection failed: {}{}", e, NEGATIVE);
+            close_client(
+                &mut client_sender,
+                UPSTREAM_CLOSE_CODE,
+                "upstream websocket unavailable",
+            )
+            .await;
+            return;
+        }
+        Err(_) => {
+            tracing::warn!(
+                "websocket connection timed out after {:?}{}",
+                CONNECT_TIMEOUT,
+                NEGATIVE
+            );
+            close_client(
+                &mut client_sender,
+                UPSTREAM_CLOSE_CODE,
+                "upstream websocket timed out",
+            )
+            .await;
             return;
         }
     };
@@ -78,12 +131,16 @@ pub async fn handle_socket(client_socket: WebSocket, target_url: String, headers
                     TungsteniteMessage::Frame(_) => continue,
                 };
                 if client_sender.send(axum_msg).await.is_err() {
-                    break;
+                    return;
                 }
             } else {
                 break;
             }
         }
+        // el upstream termino sin un frame de cierre (o con error): cerramos el
+        // cliente con codigo en vez de dejar que se corte a lo bruto, para que
+        // su `onclose` sea limpio y pueda reconectar.
+        close_client(&mut client_sender, UPSTREAM_CLOSE_CODE, "upstream closed").await;
     };
 
     tokio::select! {

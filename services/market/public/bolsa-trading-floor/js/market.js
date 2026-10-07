@@ -217,6 +217,18 @@ function refreshMarketRow(sym){
 }
 
 
+// el tablero no debe parpadear entero en el mismo frame: cada fila repinta con
+// su propio desfase (hasta ~700ms), así unas se actualizan antes y otras
+// después en vez de un fogonazo global. Todas leen el valor del mismo tick;
+// sólo cambia CUÁNDO se pinta cada una.
+function refreshMarketRowsStaggered(){
+  MARKET.forEach((m, i) => {
+    const delay = (i * 37) % 700;
+    if(delay === 0){ refreshMarketRow(m.sym); return; }
+    setTimeout(() => refreshMarketRow(m.sym), delay);
+  });
+}
+
 // how long until the quote is fixed again, in real time (the game clock runs
 // 1440x, so a game day is a real minute)
 function settleCountdownText(m){
@@ -422,7 +434,7 @@ function refreshTickUi(force){
   const now = Date.now();
   if(!force && now - lastTickUiAt < TICK_UI_MIN_MS) return;
   lastTickUiAt = now;
-  MARKET.forEach(m=>refreshMarketRow(m.sym));
+  refreshMarketRowsStaggered();
   refreshTicker();
   // el índice compuesto del campo visual viaja en el mismo latido
   if(typeof renderMarketIndex === 'function') renderMarketIndex();

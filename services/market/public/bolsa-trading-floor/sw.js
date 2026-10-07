@@ -6,8 +6,49 @@
 // siempre a la red.
 //
 // Al cambiar el juego de forma incompatible basta subir CACHE_VERSION.
-const CACHE_VERSION = 'bolsa-shell-v8';
+const CACHE_VERSION = 'bolsa-shell-v11';
 const CORE = ['./', './index.html', './styles.css'];
+// Todo el shell del juego. Se precarga en la instalacion para que el cliente
+// tenga EN MEMORIA los recursos desde la primera visita: a partir de ahi el
+// servicio de mercado deja de servir los mismos ~570 KB en cada carga.
+const SHELL = [
+  'js/util.js',
+  'js/boot.js',
+  'js/sound.js',
+  'js/catalog.js',
+  'js/news-copy.js',
+  'js/history-cache.js',
+  'js/state.js',
+  'js/net.js',
+  'js/market.js',
+  'js/chart.js',
+  'js/order.js',
+  'js/portfolio.js',
+  'js/hud.js',
+  'js/research.js',
+  'js/nav.js',
+  'js/auth.js',
+  'js/admin.js',
+  'js/profile.js',
+  'js/achievements.js',
+  'js/leaderboard.js',
+  'js/cases.js',
+  'js/events.js',
+  'js/price-alerts.js',
+  'js/orderbook.js',
+  'js/bank.js',
+  'js/casino.js',
+  'js/polls.js',
+  'js/heatmap.js',
+  'js/onboarding.js',
+  'js/main.js',
+  'css/trading-extra.css',
+  'css/auth.css',
+  'css/admin.css',
+  'css/progression.css',
+  'css/responsive.css',
+  'css/boot.css',
+];
 
 // Ventana en la que un estatico cacheado se sirve SIN preguntar al servidor.
 //
@@ -19,7 +60,7 @@ const CORE = ['./', './index.html', './styles.css'];
 //
 // Para ver un cambio al instante sin esperar: Ctrl+Shift+R (una recarga dura
 // manda cache:'reload' y salta la cache) o subir CACHE_VERSION.
-const FRESH_MS = 30 * 60 * 1000;
+const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
 
 // edad del archivo guardado, leida de su propia cabecera Date (el servidor no
 // manda ETag, pero si una Date nueva en cada 200).
@@ -33,7 +74,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_VERSION);
     // uno por uno: si un archivo falla no se cae toda la instalacion
-    await Promise.all(CORE.map(async (url) => {
+    await Promise.all(CORE.concat(SHELL).map(async (url) => {
       try { await cache.add(new Request(url, { cache: 'reload' })); } catch { /* opcional */ }
     }));
     await self.skipWaiting();

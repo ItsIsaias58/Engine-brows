@@ -25,6 +25,57 @@ Para desarrollo local:
 bun dev
 ```
 
+### que el servidor aguante con la sesion bloqueada
+
+Con la pantalla bloqueada o la tapa cerrada, Ubuntu suspende la maquina y el
+servidor (y su URL publica) dejan de responder aunque el proceso siga vivo.
+
+```bash
+./nosleep.sh            # deja la laptop despierta (activar)
+./nosleep.sh --status   # comprobar el estado
+./nosleep.sh --undo     # volver a permitir suspender
+```
+
+`nosleep.sh` hace dos cosas:
+
+1. apaga la **suspension automatica de GNOME** (Ajustes -> Energia). Esta es la
+   pieza que resuelve el caso "la sesion se cierra por el tiempo": la maquina
+   se dormia tras 1 h (corriente) / 15 min (bateria) de inactividad, y asi ya
+   no lo pide nunca.
+2. instala la unidad de usuario `lyra-nosleep.service`, que sujeta el lock
+   `sleep:idle:handle-lid-switch` de logind: el sistema no entra en reposo y la
+   tapa no suspende. Vive fuera de la sesion, asi que aguanta la pantalla
+   bloqueada y, con `Linger=yes`, tambien el cierre de sesion.
+
+No necesita `sudo`.
+
+El lock **no** frena una suspension que pidas tu a mano: con sesion activa
+polkit te autoriza (`allow_active=yes`) y logind aplica esa autorizacion por
+encima del lock — comprobado con `systemctl suspend`, que durmio la maquina
+igual. Lo que impide que se duerma sola por inactividad es el ajuste de GNOME.
+
+`./server.sh` trae lo mismo integrado y activo por defecto (`KEEP_AWAKE=1`):
+mientras esa corrida viva apaga la suspension automatica de GNOME y sujeta el
+lock de logind, y al salir revierte **solo** lo que cambio (`KEEP_AWAKE=0` lo
+desactiva). La diferencia es el alcance: la unidad `lyra-nosleep.service` sigue
+en pie con la sesion cerrada, mientras que una corrida manual de `./server.sh`
+muere con la terminal que la lanzó.
+
+Si ademas quieres que la tapa quede fijada en el sistema (que no suspenda haya
+o no sesion, sin depender de ningun proceso nuestro), hay una capa opcional que
+se aplica una sola vez:
+
+```bash
+sudo ./nosleep.sh --sudo    # logind: HandleLidSwitch=ignore (se relee al momento)
+```
+
+Escribe `/etc/systemd/logind.conf.d/99-lyra-nosleep.conf` y recarga logind sin
+cortar la sesion; `sudo ./nosleep.sh --undo` lo retira.
+
+Ojo: sin suspension la laptop no ahorra bateria, asi que si la tienes
+desenchufada vigila el nivel. El stack en si (`serve.sh`) ya se lanza bajo
+`systemd --user` con `Restart=always`, de modo que si algo lo mata vuelve solo.
+
 ### si no tienes bun
 
 bun no viene con el sistema; instalalo primero.
@@ -62,6 +113,7 @@ resumen de en que se separa Engine-brows.
 | mercado / owngames | no existe | `services/market/` completo: `bolsa-trading-floor` y `csgo-opencase`, con economia, cuentas, casos, casino, dividendos, historiales |
 | reproductor de musica | no existe | `src/features/music/` + `src/components/music/MusicPanel.tsx` (embeds de YouTube/Spotify, cola, panel redimensionable) |
 | arranque y tunel | no existe | `serve.sh`, `server.sh`, `url.sh` y `update/` (tunel con supervisor que lo reabre solo) |
+| energia | no existe | `nosleep.sh` + `scripts/keep-awake.sh`: el servidor sigue disponible con la sesion bloqueada |
 | pruebas | 0 ficheros | 21 ficheros `*.test.*` (+ `knip`) |
 | cliente (navegador/core) | — | `openInApp.ts`, `stageOverlay.ts`, `frameFocus.ts`, `hotCache.ts`, `webRequestType.ts`, `accessibility.ts`, `customization.ts`, `internalRoutes.ts` |
 | servidor | `dns.mjs` | `edgeCompression.mjs`, `serviceRoutes.mjs`, `staticPath.mjs` |

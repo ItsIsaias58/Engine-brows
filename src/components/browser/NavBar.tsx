@@ -24,6 +24,7 @@ import {
   IconChainLink4,
 } from "../icons";
 import { loadNewTabModal } from "../../app/loaders.ts";
+import { installGameDiagnostics } from "../../core/browser/frameDiagnostics.ts";
 
 function CopyLinkIcon() {
   const handleClick = useCallback(async () => {
@@ -141,6 +142,10 @@ function toggleEruda() {
     } else {
       iframe.dataset.erudaActive = "true";
       injectEruda(iframe);
+      // al abrir eruda aprovechamos para dejar el diagnostico del frame listo:
+      // con el teclado/pointer-lock roto, __lyraDiag() dice quien tiene el foco
+      // y si el pointer lock fallo, que es justo lo que no se ve desde fuera.
+      installGameDiagnostics(iframe);
     }
   } catch (err) {
     console.error("eruda toggle failed:", err, NEGATIVE);

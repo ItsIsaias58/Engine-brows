@@ -36,6 +36,9 @@ const DEV_SERVICE_ENV = devRuntime.env;
 const searchSuggestionService = createSearchSuggestionService();
 
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
+// loopback por defecto: delante va cloudflared/caddy en la misma maquina.
+// bindear 0.0.0.0 dejaba la app (y su proxy) accesible en toda la LAN.
+const HOST = process.env.LYRA_HOST || "127.0.0.1";
 const DEV_MOCHI_PORT = Number.parseInt(process.env.MOCHI_PORT || "4002", 10);
 const DEV_ISAO_PORT = Number.parseInt(process.env.ISAO_PORT || "4003", 10);
 const DEV_CLOUDSYNC_PORT = Number.parseInt(process.env.CLOUDSYNC_PORT || "4005", 10);
@@ -90,7 +93,10 @@ function turnConfigForRequest(req) {
     "127.0.0.1";
   const port = process.env.TURN_PORT || "3478";
   const username = process.env.TURN_USERNAME || "lyly";
-  const credential = process.env.TURN_CREDENTIAL || "rara";
+  const credential = process.env.TURN_CREDENTIAL || "";
+  // sin credencial (aleatoria en dev via dev-secrets) no hay TURN: nunca
+  // anunciar un relay con password por defecto conocido.
+  if (!credential) return { enabled: false, forceRelay: false, iceServers: [] };
   return {
     enabled: true,
     forceRelay: process.env.WEBRTC_FORCE_RELAY !== "0",
@@ -162,6 +168,15 @@ function setIsolationHeaders(_req, res, next) {
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   // sin COEP: ver server/prod.mjs — rompía el login embebido de spotify.
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  // cabeceras de endurecimiento: la app no debe poder ser enmarcada por
+  // terceros (clickjacking) ni enviar referrer cruzado con la URL completa.
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()",
+  );
   next();
 }
 
@@ -805,8 +820,8 @@ cleanupOnExit = () => {
   devRuntime.cleanup();
 };
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(``)
-  console.log(positiveMessage(`dev server listening on ${PORT}`));
+  console.log(positiveMessage(`dev server listening on ${HOST}:${PORT}`));
   spawnServices();
 });

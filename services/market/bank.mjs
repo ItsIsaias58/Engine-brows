@@ -260,9 +260,16 @@ function collectLoan(portfolio, bank, prices) {
     );
     if (liquidation <= 0 || value <= 0) continue;
     const take = Math.min(liquidation, owed);
-    const frac = Math.min(1, take / value);
+    // la fraccion se mide contra la LIQUIDACION liberada, no contra el valor de
+    // mercado: vender `frac` de las acciones libera `liquidation * frac`. con
+    // `take / value` el banco tomaba mas de lo que la posicion liberaba y el
+    // resto salia del efectivo, dejandolo en negativo, ademas de apropiarse de
+    // menos acciones. `take / liquidation` libera exactamente lo que se cobra.
+    const frac = Math.min(1, take / liquidation);
     const sold = shares * frac;
-    portfolio.cash += liquidation * frac - take;
+    // el resto que queda al jugador nunca es negativo (con la fraccion correcta
+    // ya es 0 salvo el residuo de coma flotante; el max lo acota)
+    portfolio.cash += Math.max(0, liquidation * frac - take);
     if (sold >= shares - 0.0001) delete portfolio.positions[sym];
     else {
       position.shares = shares - sold;

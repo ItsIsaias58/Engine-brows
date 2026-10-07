@@ -15,7 +15,7 @@ import { ensureProxyRuntime } from "../proxy/proxyRuntime.ts";
 import { getRivet } from "../proxy/rivetBridge.ts";
 import { hostFromUrl, recordGameMetric } from "../media/gameDiagnostics.ts";
 import { NEGATIVE } from "../runtime/messages.ts";
-import { focusFrame, markFrameFocusable } from "./frameFocus.ts";
+import { focusFrame, focusFrameSoon, markFrameFocusable } from "./frameFocus.ts";
 import type { HistoryManager } from "./history.ts";
 
 interface LyraTab {
@@ -550,7 +550,9 @@ function armFrameFocus(iframe: HTMLIFrameElement): void {
   markFrameFocusable(iframe);
   if (iframe.dataset.focusArmed === "true") return;
   iframe.dataset.focusArmed = "true";
-  iframe.addEventListener("load", () => focusFrame(iframe));
+  // el load puede adelantarse al documento proxied: focusFrameSoon reintenta
+  // hasta que el iframe sea el elemento activo (ver frameFocus.ts)
+  iframe.addEventListener("load", () => focusFrameSoon(iframe));
   // el folio navega por dentro y puede cambiar de documento sin que el iframe
   // dispare load; sin esto, tras navegar dentro del juego se perdia otra vez
   iframe.addEventListener("click", () => focusFrame(iframe));

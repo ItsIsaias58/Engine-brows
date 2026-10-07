@@ -13,7 +13,14 @@ export function createDevRuntime(baseEnv = process.env) {
     ...baseEnv,
     JWT_SECRET: randomHex(64),
     SYNC_SECRET: randomHex(),
-    TURN_CREDENTIAL: randomHex(24),
+    // credenciales TURN efimeras por ejecucion (sin usuario/password por
+    // defecto conocidos que se filtren en la lista de procesos).
+    TURN_USERNAME: baseEnv.TURN_USERNAME || `lyra-${randomHex(4)}`,
+    TURN_CREDENTIAL: baseEnv.TURN_CREDENTIAL || randomHex(24),
+    // los servicios internos se quedan en loopback: solo lyra los consume.
+    // sin esto, mochi/isao arrancaban en 0.0.0.0 y quedaban visibles en la LAN.
+    MOCHI_HOST: baseEnv.MOCHI_HOST || "127.0.0.1",
+    ISAO_HOST: baseEnv.ISAO_HOST || "127.0.0.1",
     CLOUDSYNC_DB_PATH: path.join(runtimeDir, "cloudsync.db"),
   };
 

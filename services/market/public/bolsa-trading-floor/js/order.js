@@ -415,7 +415,6 @@ function closeFullPosition(sym, reason){
   updateQuoteBlock();
   updatePerformancePanel();
   renderPositions();
-  renderTransactions();
   checkQuests();
 }
 
@@ -441,7 +440,6 @@ function closePositionPct(sym, pct){
   updateQuoteBlock();
   updatePerformancePanel();
   renderPositions();
-  renderTransactions();
   checkQuests();
 }
 
@@ -501,7 +499,6 @@ function executeOrder(){
   updateQuoteBlock();
   updatePerformancePanel();
   renderPositions();
-  renderTransactions();
   checkQuests();
   if(typeof drawChart === 'function') drawChart();
 }

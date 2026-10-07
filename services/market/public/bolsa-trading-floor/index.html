@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/trading-extra.css">
 <link rel="stylesheet" href="css/auth.css">
 <link rel="stylesheet" href="css/admin.css">
+<link rel="stylesheet" href="/owngames/shared/chat.css">
 <link rel="stylesheet" href="css/progression.css">
 <link rel="stylesheet" href="css/responsive.css">
 <link rel="stylesheet" href="css/boot.css">
@@ -617,7 +618,46 @@
 <script src="js/research.js"></script>
 <script src="js/nav.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/admin.js"></script>
+<!-- La consola de administrador (~50 KB) sólo la usan los admins: se carga
+     bajo demanda. El atajo (Ctrl+Shift+A) y el botón del rail la traen la
+     primera vez que hacen falta; a partir de ahí manda js/admin.js. -->
+<script>
+(function(){
+  var loaded = false;
+  var loading = null;
+  function loadAdmin(){
+    // `AdminConsole` se declara con const en admin.js: existe como binding
+    // global pero NO como window.AdminConsole, asi que el acuse va por bandera.
+    if (loaded || typeof window.__mountAdminButton === 'function') return Promise.resolve();
+    if (loading) return loading;
+    loading = new Promise(function(resolve, reject){
+      var s = document.createElement('script');
+      s.src = 'js/admin.js';
+      s.onload = function(){ loaded = true; resolve(); };
+      s.onerror = function(){ loading = null; reject(new Error('no se pudo cargar js/admin.js')); };
+      document.head.appendChild(s);
+    });
+    return loading;
+  }
+  window.loadAdminScript = loadAdmin;
+  // auth.js llama a maybeMountAdminButton(): si el archivo aún no está, se trae
+  // y luego se monta el botón real (admin.js redefine este global al cargar).
+  // un invitado no lo necesita: sólo se carga para una cuenta admin.
+  window.maybeMountAdminButton = function(){
+    if (typeof window.__mountAdminButton === 'function') { window.__mountAdminButton(); return; }
+    if (typeof MarketNet === 'undefined' || !MarketNet.isAdmin) return;
+    loadAdmin().then(function(){ if (typeof window.__mountAdminButton === 'function') window.__mountAdminButton(); }).catch(function(){});
+  };
+  // el atajo y el cierre viven aquí para existir aunque admin.js no esté cargado
+  document.addEventListener('keydown', function(event){
+    if (event.key === 'Escape' && typeof AdminConsole !== 'undefined' && AdminConsole.open) { AdminConsole.close(); return; }
+    if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') {
+      event.preventDefault();
+      loadAdmin().then(function(){ if (typeof AdminConsole !== 'undefined') AdminConsole.toggle(); }).catch(function(){});
+    }
+  });
+})();
+</script>
 <script src="js/profile.js"></script>
 <script src="js/achievements.js"></script>
 <script src="js/leaderboard.js"></script>
@@ -631,5 +671,6 @@
 <script src="js/heatmap.js"></script>
 <script src="js/onboarding.js"></script>
 <script src="js/main.js"></script>
+<script src="/owngames/shared/chat.js" defer></script>
 </body>
 </html>

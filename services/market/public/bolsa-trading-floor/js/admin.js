@@ -252,7 +252,7 @@ const AdminConsole = {
           </div>
         </header>
         <nav class="admin-tabs" id="adminTabs">
-          ${[['panel', 'Panel'], ['events', 'Eventos'], ['params', 'Parámetros'], ['players', 'Jugadores'], ['market', 'Mercado'], ['logs', 'Logs']]
+          ${[['panel', 'Panel'], ['events', 'Eventos'], ['params', 'Parámetros'], ['players', 'Jugadores'], ['market', 'Mercado'], ['chat', 'Chat'], ['logs', 'Logs']]
             .map(([id, label]) => `<button class="admin-tab${id === 'panel' ? ' is-active' : ''}" data-tab="${id}">${label}</button>`)
             .join('')}
         </nav>
@@ -294,7 +294,9 @@ const AdminConsole = {
     this.renderChrome();
     // a form tab is never repainted by the poll: that is what used to wipe the
     // chosen symbol (and every other field) a second after picking it
-    if (!this.isFormTab()) this.render();
+    // el chat no se auto-repinta en el poll: se recarga a mano (si no, el
+    // buscador y la lista parpadearían cada segundo)
+    if (!this.isFormTab() && this.tab !== 'chat') this.render();
   },
 
   async adminRequest(path, method = 'GET', body = null) {
@@ -634,6 +636,7 @@ const AdminConsole = {
         return this.applyForm();
       case 'players': return this.renderPlayers(body);
       case 'market': return this.renderMarket(body);
+      case 'chat': return this.renderChat(body);
       case 'logs': return this.renderLogs(body);
       default: return undefined;
     }
@@ -1073,6 +1076,65 @@ const AdminConsole = {
     });
   },
 
+  // ---- chat: ver todo lo que se habla, buscar patrones y sancionar --------
+  async renderChat(body) {
+    body.innerHTML = '<div class="admin-empty">Cargando chat…</div>';
+    let data = null;
+    try {
+      data = await this.adminRequest('/api/market/admin/chat/messages?limit=400');
+    } catch (e) {
+      body.innerHTML = `<div class="admin-empty">No se pudo cargar el chat: ${escapeHtml(e.message)}</div>`;
+      return;
+    }
+    const messages = (data && Array.isArray(data.messages)) ? data.messages : [];
+    body.innerHTML = `
+      <div class="admin-actions">
+        <input id="adminChatSearch" type="search" placeholder="Buscar por nombre o texto…" class="admin-input">
+        <button class="nav-modal-btn" id="adminChatReload">↻ Recargar</button>
+      </div>
+      <div class="admin-logs" id="adminChatList"></div>`;
+    const list = body.querySelector('#adminChatList');
+    const paint = (query) => {
+      const needle = String(query || '').toLowerCase();
+      const rows = messages.filter((m) => !needle
+        || String(m.author).toLowerCase().includes(needle)
+        || String(m.text).toLowerCase().includes(needle));
+      list.innerHTML = rows.length
+        ? rows.map((m) => `
+          <div class="admin-log">
+            <span class="mono">${new Date(m.at).toLocaleString('es-MX')}</span>
+            <span class="admin-log-level">${escapeHtml(m.channel)}</span>
+            <strong>${escapeHtml(m.author)}</strong>
+            <span>${escapeHtml(m.text)}</span>
+            <button class="nav-modal-btn danger" data-chatban="${escapeHtml(m.author)}">Sancionar</button>
+          </div>`).join('')
+        : '<div class="admin-empty">Sin mensajes.</div>';
+      list.querySelectorAll('[data-chatban]').forEach((btn) => {
+        btn.addEventListener('click', () => this.chatModerate(btn.dataset.chatban));
+      });
+    };
+    paint('');
+    body.querySelector('#adminChatSearch').addEventListener('input', (e) => paint(e.target.value));
+    body.querySelector('#adminChatReload').addEventListener('click', () => this.render());
+  },
+
+  async chatModerate(name) {
+    const scope = prompt(`Sancionar a ${name}. Escribe "chat" (sólo el chat) o "cuenta" (bloquea el juego):`, 'chat');
+    if (!scope) return;
+    const hours = Number(prompt('Duración en horas (0 = permanente):', '0')) || 0;
+    const reason = prompt('Motivo:', 'contenido indecente') || '';
+    const scopeId = (scope === 'cuenta' || scope === 'account') ? 'account' : 'chat';
+    try {
+      await this.adminRequest('/api/market/admin/chat/ban', 'POST', {
+        name, scope: scopeId, durationMs: hours * 3600 * 1000, reason,
+      });
+      this.toastEvent('Chat', `${name} sancionado (${scopeId})`, 'down');
+      this.render();
+    } catch (e) {
+      this.toastEvent('Chat error', e.message || 'falló', 'down');
+    }
+  },
+
   renderLogs(body) {
     body.innerHTML = `
       <div class="admin-actions">
@@ -1117,17 +1179,9 @@ const AdminConsole = {
   },
 };
 
-// atajo de teclado: siempre funciona, sirve también como herramienta de desarrollo
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && AdminConsole.open) {
-    AdminConsole.close();
-    return;
-  }
-  if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a') {
-    event.preventDefault();
-    AdminConsole.toggle();
-  }
-});
+// el atajo de teclado (Ctrl+Shift+A) y el cierre con Esc viven en el cargador
+// diferido de index.html: esta consola se carga sólo cuando hace falta, asi que
+// el atajo tiene que existir aunque este archivo todavia no este en memoria.
 
 // el botón del rail sólo aparece si la cuenta es admin
 function maybeMountAdminButton() {
@@ -1147,3 +1201,7 @@ function maybeMountAdminButton() {
   btn.addEventListener('click', () => AdminConsole.show());
   rail.appendChild(btn);
 }
+
+// el cargador diferido llama a este global despues de traer el archivo; el
+// nombre publico `maybeMountAdminButton` queda igual para auth.js
+window.__mountAdminButton = maybeMountAdminButton;

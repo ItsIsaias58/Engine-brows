@@ -2011,6 +2011,27 @@ describe('player finance', () => {
     expect(log.some((e) => e.kind === 'loan-collected')).toBe(true);
   });
 
+  test('an expired loan seizes positions at their liquidation value and never over-draws cash', async () => {
+    const { accrueBankDay } = await import('../services/market/bank.mjs');
+    // posicion apalancada: la liquidacion (margen + P/L abierta) es MENOR que el
+    // valor de mercado (400 < 1200). es justo el caso que el viejo `take / value`
+    // rompia: se llevaba menos acciones y descontaba efectivo de mas (negativo).
+    const portfolio = {
+      cash: 0,
+      positions: { SOLMK: { shares: 100, avgPrice: 10, leverage: 5, margin: 200 } },
+      bank: { balance: 0, loan: 200, loanDaysLeft: 1, loanAtDay: 0 },
+    };
+    const prices = new Map([['SOLMK', 12]]);
+    const log = accrueBankDay(portfolio, prices, 1);
+    expect(log.some((e) => e.kind === 'loan-collected')).toBe(true);
+    expect(portfolio.bank.loan).toBe(0);
+    // el efectivo nunca queda por debajo de cero al ejecutar el prestamo
+    expect(portfolio.cash).toBeGreaterThanOrEqual(0);
+    // la posicion cubre la deuda: queda parte de las acciones, no se vacian de mas
+    expect(portfolio.positions.SOLMK).toBeTruthy();
+    expect(portfolio.positions.SOLMK.shares).toBeLessThan(100);
+  });
+
   test('a resting limit buy fills at its own price, never worse', async () => {
     await put({ cash: 5000, positions: {} });
     let res = await fetch(`${base}/api/market/orders`, {

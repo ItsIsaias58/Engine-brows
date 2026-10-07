@@ -68,6 +68,11 @@ svg{ width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.8; 
   align-items:center;
   padding:18px 0;
   gap:22px;
+  /* el rail va por encima del panel de mercado: sus tooltips (Academia,
+     Noticias, Banco…) se dibujan hacia la derecha y antes quedaban tapados
+     por la vista de mercado */
+  position:relative;
+  z-index:80;
 }
 .rail-mark{
   width:30px; height:30px;

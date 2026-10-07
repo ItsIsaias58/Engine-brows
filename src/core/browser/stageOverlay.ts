@@ -1,5 +1,5 @@
 import { destroyInPlaceFrame, navigateInPlaceFrame } from "../proxy/folio.ts";
-import { focusFrame, markFrameFocusable } from "./frameFocus.ts";
+import { focusFrame, focusFrameSoon, markFrameFocusable } from "./frameFocus.ts";
 
 // El visor: una pantalla grande dentro de la app para ver paginas externas
 // (spotify, youtube, la pagina de un juego) servidas por el proxy de folio.
@@ -124,8 +124,9 @@ export function openStage(url: string, title?: string): void {
       // load, el foco se pedia sobre un frame sin documento y se perdia), y en
       // las siguientes el frame ya esta cacheado y resuelve de inmediato — si el
       // "load" ya habia ocurrido, el evento no vuelve a llegar. por eso el
-      // teclado funcionaba a veces y otras no.
-      focusFrame(frame);
+      // teclado funcionaba a veces y otras no. focusFrameSoon ademas reintenta
+      // por si el documento proxied atachea sus listeners despues.
+      focusFrameSoon(frame);
     })
     .catch(() => {
       // si folio no esta listo el frame se queda en blanco: se avisa en la barra

@@ -749,14 +749,14 @@ setInterval(() => {
 // pestaña, la operación tampoco se habría cobrado nunca en el servidor, así que
 // las dos copias mueren juntas. Para eso está el flush en beforeunload.
 let marketPendingOps = [];
-let marketInFlightOps = 0;
+let marketInFlightOps = [];
 const MARKET_OPS_FLUSH_AT = 40;
 
 // vacía la cola: lo que está en vuelo se devuelve para que un reintento no
 // pierda operaciones que el servidor aún no ha visto
 function marketDrainOps() {
   const ops = marketInFlightOps.concat(marketPendingOps);
-  marketInFlightOps = 0;
+  marketInFlightOps = [];
   marketPendingOps = [];
   return ops;
 }
@@ -847,7 +847,6 @@ function applyServerPortfolio(portfolio) {
   if (typeof updateQuoteBlock === 'function') updateQuoteBlock();
   if (typeof updatePerformancePanel === 'function') updatePerformancePanel();
   if (typeof renderPositions === 'function') renderPositions();
-  if (typeof renderTransactions === 'function') renderTransactions();
   if (typeof renderWatchlist === 'function') renderWatchlist();
   if (typeof recalcOrder === 'function') recalcOrder();
 }

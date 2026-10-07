@@ -372,6 +372,15 @@ async function handleRivetNetworkRequest(request, targetUrl) {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
+  // la precarga de navegación (activada en `activate`) debe liquidarse SIEMPRE.
+  // si un fetch de navegación cae en una rama temprana (rivet/prefetch/mochi/
+  // archivo grande) sin consumir event.preloadResponse, Chrome cancela la
+  // precarga y avisa "preloadResponse was cancelled before it settled".
+  // waitUntil la deja asentada sin cambiar la respuesta que devolvemos.
+  if (event.preloadResponse) {
+    event.waitUntil(event.preloadResponse.catch(() => null));
+  }
+
   const rivetNetworkUrl = rivetRouter?.extensionNetworkUrl?.(event);
   if (rivetNetworkUrl) {
     event.respondWith(handleRivetNetworkRequest(request, rivetNetworkUrl));

@@ -167,17 +167,22 @@ function currentSeriesKey(){
 // delta merge never yanks a panned chart back to the present.
 function paintHistorySeries(list, view){
   if(!Array.isArray(list) || !list.length) return false;
-  const built = list
-    .filter(c=> c && typeof c.close==='number' && typeof c.t==='number')
-    .sort((a,b)=> a.t - b.t)
-    .map(c=>({
+  // una sola pasada en vez de filter+map (dos arrays grandes por ingesta): se
+  // filtra, normaliza y luego se ordena lo que de verdad entra
+  const built = [];
+  for(let i=0;i<list.length;i++){
+    const c = list[i];
+    if(!c || typeof c.close!=='number' || typeof c.t!=='number') continue;
+    built.push({
       t:c.t,
       open: typeof c.open==='number' ? c.open : c.close,
       close:c.close,
       high:Math.max(c.high, c.open, c.close),
       low:Math.min(c.low, c.open, c.close),
-    }));
+    });
+  }
   if(!built.length) return false;
+  built.sort((a,b)=> a.t - b.t);
 
   const m = bySym(activeSymbol);
   if(m){
@@ -458,7 +463,9 @@ function chartIsLive(){
 // back to the newest candle (double click, the “En vivo” button, a new symbol)
 function goLive(){
   panOffset = 0;
-  animateChartIn();
+  // volver a la cinta no debe reiniciar la animación de entrada
+  saveChartView();
+  scheduleDraw();
 }
 function resetChartView(){
   panOffset = 0;
@@ -562,8 +569,15 @@ function drawChart(){
   const position = state.positions[activeSymbol];
   const entry = position && position.shares > 0 ? position.avgPrice : null;
 
-  let min = Math.min.apply(null, slice.map(c=>c.low));
-  let max = Math.max.apply(null, slice.map(c=>c.high));
+  // una pasada por la rebanada visible: antes se creaban dos arrays con map y
+  // se llamaba a Math.min/max.apply con cientos de argumentos en cada pintado
+  let min = Infinity;
+  let max = -Infinity;
+  for(let i=0;i<slice.length;i++){
+    const c = slice[i];
+    if(c.low < min) min = c.low;
+    if(c.high > max) max = c.high;
+  }
   if(!(max > min)){
     const mid = max || 1;
     min = mid * 0.995;
@@ -899,11 +913,17 @@ function setVisibleCount(n, anchorRatio = 0.5){
   visibleCount = Math.min(candles.length, Math.max(zoomFloor(), Math.round(n)));
   if(!wasLive) panOffset += (previous - visibleCount) * (1 - anchorRatio);
   clampPan(panOffset);
-  animateChartIn();
+  // el zoom NO re-lanza la animación de entrada: animateChartIn() resetea
+  // drawProgress y redibuja las velas creciendo desde cero, que es justo el
+  // "se reinicia al acercarme" que se veía. Aquí sólo se repinta el frame.
+  saveChartView();
+  scheduleDraw();
 }
 function panBy(bars){
   clampPan(panOffset + bars);
-  animateChartIn();
+  // desplazar tampoco reinicia la gráfica: repintado directo, sin grow-in
+  saveChartView();
+  scheduleDraw();
 }
 document.getElementById('zoomIn').addEventListener('click', ()=>{
   setVisibleCount(visibleCount - Math.max(6, Math.round(visibleCount*0.18)));
@@ -976,7 +996,8 @@ function panFromPointer(e){
   const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left)/rect.width));
   const start = ratio*candles.length - visibleCount/2;
   clampPan(candles.length - visibleCount - start);
-  animateChartIn();
+  saveChartView();
+  scheduleDraw();
 }
 if(scrubTrack){
   scrubTrack.addEventListener('pointerdown', (e)=>{

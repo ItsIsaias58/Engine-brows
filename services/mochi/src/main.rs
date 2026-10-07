@@ -289,7 +289,9 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
 
     let port = std::env::var("MOCHI_PORT").unwrap_or_else(|_| "4002".to_string());
     let port = port.parse::<u16>().unwrap_or(4002);
-    let host = std::env::var("MOCHI_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    // loopback por defecto: el proxy solo lo consume lyra en la misma maquina.
+    // bindear 0.0.0.0 exponia el proxy (y su superficie) a toda la LAN.
+    let host = std::env::var("MOCHI_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let host = host
         .parse::<std::net::IpAddr>()
         .map_err(|_| "invalid mochi bind address... /ᐠ - ˕ -マ")?;

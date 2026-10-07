@@ -422,6 +422,12 @@
 
   // ---------------------------------------------------------------- abrir caja
 
+  // el server ya nació el item dentro del inventario de la cuenta, pero el
+  // cliente NO lo adopta hasta que la ruleta se detiene. concederlo (inventario
+  // + stats) en el .then de abrir era exactamente el bug de "me da el arma en
+  // el primer segundo": el inventario se pintaba antes de que acabara el giro.
+  let pendingReveal = null;
+
   function openCase(id) {
     if (spinning) return;
     const c = (catalog.cases || {})[id];
@@ -431,24 +437,33 @@
     if (signedIn()) {
       api("/skins", { method: "POST", body: { action: "open", caseId: id } })
         .then((r) => {
-          // guardar es el default: la skin ya nació dentro del inventario del
-          // server; aquí sólo la adoptamos para que "Guardar", el inventario y
-          // los tradeos la vean al instante (antes el item se perdía del
-          // cliente hasta recargar — el bug de "guardar no funciona")
+          // pagar SÍ se refleja al instante (el costo ya se conoce); el premio
+          // queda pendiente hasta el revelado.
           session.cash = r.cash;
-          if (r.item) { inventory.push(r.item); stats.opened += 1; stats.spent += c.cost; }
+          pendingReveal = { case: c, item: r.item };
           startSpin(c, r.item);
         })
         .catch((e) => toast("No se pudo abrir: " + e.message, "down"));
     } else {
       const item = rollLocal(c);
+      // el invitado paga al abrir, pero el loot se suma recién al revelar
       setGuestCash(guestCash() - c.cost);
-      stats.opened += 1;
-      stats.spent += c.cost;
-      inventory.push(item);
-      saveLocal();
+      pendingReveal = { case: c, item };
       startSpin(c, item);
     }
+  }
+
+  // se llama UNA vez, al terminar el giro: recién aquí el jugador recibe la skin
+  // (inventario + stats). idempotente: limpia el pendiente para no duplicar.
+  function commitReveal() {
+    const p = pendingReveal;
+    pendingReveal = null;
+    if (!p || !p.item) return;
+    inventory.push(p.item);
+    stats.opened += 1;
+    stats.spent += p.case.cost;
+    if (!signedIn()) saveLocal();
+    renderWallet();
   }
 
   function startSpin(c, item) {
@@ -486,6 +501,9 @@
   // estado operable en vez de quedarse congelada hasta recargar
   function recoverFromSpin() {
     spinning = false;
+    // el server ya concedió el item: si el revelado falló, lo commitamos igual
+    // para que no se pierda del cliente (el inventario "está a salvo")
+    try { commitReveal(); } catch {}
     playSfx("lose", 0.3);
     const backBtn = $("rouletteBack");
     if (backBtn) backBtn.disabled = false;
@@ -542,6 +560,8 @@
     } else {
       toast(`${money(item.value - c.cost)} vs el costo de la caja`, "down");
     }
+    // el giro terminó: AHORA se concede el item (inventario + stats)
+    commitReveal();
     renderInventory();
     renderStats();
   }
@@ -951,6 +971,10 @@
     liveRefreshTimer = setTimeout(async () => {
       liveRefreshTimer = null;
       if (!signedIn()) return;
+      // con un giro en curso no se repinta el inventario: el item recién
+      // concedido no debe asomar antes del revelado (el poll de 1s se
+      // encarga de reconciliar apenas termine)
+      if (spinning) return;
       try {
         const d = await api("/skins");
         inventory = d.inventory || [];

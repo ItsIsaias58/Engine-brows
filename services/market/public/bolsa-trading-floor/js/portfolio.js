@@ -199,25 +199,6 @@ function renderPositionsFooter(entries){
   totalPnlEl.className = `mono ${totalPnl>=0?'pos':'neg'}`;
 }
 
-// kept for the profile counters, but the history itself is gone: every closed
-// trade now reports through the notification bell instead of a bottom list
-function renderTransactions(){
-  const wrap = document.getElementById('transactionsRows');
-  if(!wrap) return;
-  if(!state.transactions.length){
-    wrap.innerHTML = '<div class="mini-empty">Sin historial todavía.</div>';
-    return;
-  }
-  wrap.innerHTML = state.transactions.slice(0,25).map(t=>`
-    <div class="mini-row">
-      <span class="sym">${t.sym}</span>
-      <span class="mono">${t.time}</span>
-      <span class="tag ${t.type==='Compra'?'tag-buy':'tag-sell'}">${t.type}</span>
-      <span class="mono">${t.shares}</span>
-      <span class="mono">${money(t.price)}</span>
-    </div>`).join('');
-}
-
 
 // a position is closed the moment it falls to zero or below: the loss has eaten
 // the whole margin, so the trade is liquidated automatically instead of sitting
@@ -297,7 +278,6 @@ function tickBankruptcy(){
     updateQuoteBlock();
     updatePerformancePanel();
     renderPositions();
-    renderTransactions();
     recalcOrder();
     return;
   }
@@ -312,7 +292,6 @@ function tickBankruptcy(){
   updateQuoteBlock();
   updatePerformancePanel();
   renderPositions();
-  renderTransactions();
   recalcOrder();
 }
 

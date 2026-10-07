@@ -25,7 +25,6 @@ function init(){
   renderResearchView();
   updatePerformancePanel();
   renderPositions();
-  renderTransactions();
   renderWatchlist();
   recalcOrder();
   checkQuests();

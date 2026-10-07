@@ -58,6 +58,13 @@ twisp = ["dep:pty-process", "dep:libc", "dep:shell-words"]
 speed-limit = ["dep:async-speed-limit"]
 tokio-console = ["dep:console-subscriber"]
 
+# el servidor wisp valida el stream id con debug_assert_ne!(id, 0): en un build
+# debug un CONNECT malformado (id 0) paniquea un worker. release ya no lleva
+# aserciones, asi que alineamos la dependencia en dev en vez de dejar el crash.
+# (arreglo de fondo: rechazar el paquete en wisp-mux, upstream).
+[profile.dev.package.wisp-mux]
+debug-assertions = false
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

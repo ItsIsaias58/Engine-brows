@@ -36,6 +36,9 @@ let shuttingDown = false;
 
 const ROOT = process.cwd();
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
+// loopback por defecto: caddy/cloudflared van delante en la misma maquina.
+// sin hostname explicito Bun.serve escucha en 0.0.0.0 y exponia la app a la LAN.
+const HOST = process.env.LYRA_HOST || "127.0.0.1";
 const TURN_HEALTH_HOST = process.env.TURN_HEALTH_HOST || "127.0.0.1";
 const TURN_HEALTH_PORT = Number.parseInt(process.env.TURN_PORT || "3478", 10);
 const TURN_HEALTH_TIMEOUT_MS = 2_000;
@@ -264,6 +267,10 @@ function baseHeaders(cacheControl, extra = {}) {
     // que el aislamiento no compensa romper los embeds.
     "Cross-Origin-Resource-Policy": "cross-origin",
     "X-Content-Type-Options": "nosniff",
+    // no enmarcable por terceros (clickjacking) ni referrer cruzado completo.
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
     ...extra,
   };
@@ -902,6 +909,10 @@ async function appFetch(req, server) {
   const pathname = url.pathname;
 
   if (isWispPath(pathname)) {
+    // /w/ es un relay tcp abierto (nuru filtra loopback/privadas, pero sigue
+    // siendo un proxy publico sin auth): frenamos el churn de conexiones.
+    const limited = rateLimitApi(req, server);
+    if (limited) return limited;
     return handleWispRequest(req, server);
   }
 
@@ -1109,6 +1120,7 @@ async function logAccess(req, srv) {
 }
 
 const server = Bun.serve({
+  hostname: HOST,
   port: PORT,
   http2: true,
   idleTimeout: 60,

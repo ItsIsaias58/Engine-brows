@@ -61,7 +61,6 @@
     'js/research.js',
     'js/nav.js',
     'js/auth.js',
-    'js/admin.js',
     'js/profile.js',
     'js/achievements.js',
     'js/leaderboard.js',
@@ -75,6 +74,7 @@
     'js/heatmap.js',
     'js/onboarding.js',
     'js/main.js',
+    '/owngames/shared/chat.js',
   ];
 
   function labelFor(url){
@@ -330,12 +330,22 @@
     render();
     ticker = setInterval(() => { render(); }, TICK_MS);
 
-    for(let i = 0; i < steps.length; i++){
-      setPhase(steps[i].label);
+    // el primer paso (el DOM) es un prerrequisito real: sin el no hay nada que
+    // medir ni que pintar.
+    setPhase(steps[0].label);
+    try { await steps[0].run(); } catch { /* el boot no se cae por esto */ }
+
+    // el resto son independientes entre si (tipografias, cache local, socket y
+    // primer tramo de velas). en serie, cada uno esperaba al anterior y el mas
+    // lento sumaba su espera: con tipografias o red lentas el overlay se
+    // quedaba de mas. se lanzan a la vez y el overlay se retira cuando TODOS
+    // terminan — la misma condicion de antes, sin la suma de esperas.
+    setPhase('Preparando el juego…');
+    await Promise.all(steps.slice(1).map(async (step) => {
       let ok = false;
-      try { ok = await steps[i].run(); } catch { ok = false; }
-      if(!ok && i > 0) note(steps[i].label.replace('…','') + ' con avisos.');
-    }
+      try { ok = await step.run(); } catch { ok = false; }
+      if(!ok) note(step.label.replace('…','') + ' con avisos.');
+    }));
     setPhase('Listo');
     finish();
   }

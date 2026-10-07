@@ -346,15 +346,23 @@ function syncQuestDom(){
 }
 
 const SAVE_KEY = 'bolsa-trading-floor-save';
+// ultimo payload escrito: cada localStorage.setItem marca al cloud sync como
+// "sucio" (y eso dispara un escaneo+serializacion completo del navegador), asi
+// que el autoguardado de cada 2 s solo debe escribir si el estado cambio.
+let lastSavedPayload = '';
 
 function saveGame(){
   try{
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
+    const payload = JSON.stringify({
       state,
       market: MARKET.map(m=>({ sym:m.sym, price:m.price, open:m.open, prevClose:m.prevClose, high:m.high, low:m.low,
         livePrice:m.livePrice, settle:m.settle, prevSettle:m.prevSettle, settleDay:m.settleDay, nextSettleAt:m.nextSettleAt })),
       activeSymbol, side, leverage, currentView,
-    }));
+    });
+    if(payload !== lastSavedPayload){
+      lastSavedPayload = payload;
+      localStorage.setItem(SAVE_KEY, payload);
+    }
   }catch(e){}
 
   // signed in players also persist cash, positions and statistics on the

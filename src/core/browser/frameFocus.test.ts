@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { focusFrame, markFrameFocusable } from "./frameFocus";
+import {
+  focusFrame,
+  focusFrameSoon,
+  markFrameFocusable,
+  setFocusScheduler,
+} from "./frameFocus";
 
 // stub minimo: el entorno de test de bun no trae document, y meter jsdom para
 // dos llamadas seria meter una dependencia de 10MB en el repo. hace falta solo
@@ -142,5 +147,50 @@ describe("iframe focus", () => {
   test("null and undefined are accepted", () => {
     expect(() => focusFrame(null)).not.toThrow();
     expect(() => focusFrame(undefined)).not.toThrow();
+  });
+
+  // con iframes cross-origin (los juegos van por /!!/) enfocar solo el elemento
+  // no siempre pasa el teclado al documento de dentro: hay que enfocar tambien
+  // contentWindow.
+  test("focusFrame enfoca tambien el documento interno", () => {
+    const f = frame();
+    f.setAttribute("src", "/!!/game/");
+    let innerFocused = 0;
+    (f as unknown as Record<string, unknown>).contentWindow = {
+      focus: () => {
+        innerFocused += 1;
+      },
+    };
+
+    focusFrame(f);
+
+    expect(innerFocused).toBe(1);
+  });
+
+  // el load puede llegar antes que el documento proxied: se reintenta hasta que
+  // el iframe sea el elemento activo, y entonces se deja de insistir para no
+  // robarle el foco a lo que el usuario este haciendo.
+  test("focusFrameSoon reintenta y para cuando el frame ya es el activo", () => {
+    const f = frame();
+    f.setAttribute("src", "/!!/game/");
+    const fakeDoc = { activeElement: null as unknown };
+    (globalThis as Record<string, unknown>).document = fakeDoc;
+    const queue: Array<() => void> = [];
+    setFocusScheduler((fn) => queue.push(fn));
+    try {
+      focusFrameSoon(f, 3, 0);
+      // primer intento: todavia no es el activo -> enfoca una vez
+      expect((f as unknown as FakeFrame).focused).toBe(1);
+
+      // el navegador ahora lo marca como activo antes de los reintentos
+      fakeDoc.activeElement = f;
+      while (queue.length > 0) queue.shift()!();
+
+      // ya era el activo: no vuelve a robar el foco
+      expect((f as unknown as FakeFrame).focused).toBe(1);
+    } finally {
+      setFocusScheduler(null);
+      delete (globalThis as Record<string, unknown>).document;
+    }
   });
 });

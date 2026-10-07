@@ -56,4 +56,56 @@ export function focusFrame(frame: HTMLIFrameElement | null | undefined): void {
       frame.focus();
     } catch {}
   }
+  // con un iframe cross-origin (los juegos van por el proxy /!!/) enfocar solo
+  // el ELEMENTO a veces deja el teclado en el documento padre: el foco de
+  // verdad, el que hace que las teclas entren al juego, es el del documento
+  // interno. contentWindow.focus() esta permitido aunque sea de otro origen.
+  try {
+    (frame.contentWindow as Window | null)?.focus?.();
+  } catch {}
+}
+
+/**
+ * Reintenta el foco una vez que la navegacion termino.
+ *
+ * El "load" del frame puede llegar ANTES de que el documento proxied haya
+ * atacheado sus listeners de teclado, y entonces el foco se pierde en el aire.
+ * En vez de un unico intento se reintenta un numero acotado de veces hasta que
+ * el frame (o su contenido) sea el elemento activo. Basta con que activeElement
+ * sea el iframe: el navegador ya le entrega las teclas al documento de dentro.
+ */
+type FocusScheduler = (fn: () => void, delayMs: number) => void;
+
+let scheduleFocus: FocusScheduler = (fn, delayMs) => {
+  setTimeout(fn, delayMs);
+};
+
+/** solo para los tests: sustituye el programador de reintentos. */
+export function setFocusScheduler(scheduler: FocusScheduler | null): void {
+  scheduleFocus =
+    scheduler ?? ((fn, delayMs) => setTimeout(fn, delayMs));
+}
+
+export function focusFrameSoon(
+  frame: HTMLIFrameElement | null | undefined,
+  attempts = 4,
+  delayMs = 200,
+): void {
+  if (!frame) return;
+  let left = attempts;
+  const attempt = () => {
+    if (!frame.isConnected) return;
+    // si el frame ya es el activo, el navegador ya le manda el teclado: no hay
+    // que robarle el foco a lo que el usuario este haciendo
+    let alreadyFocused = false;
+    try {
+      alreadyFocused =
+        typeof document !== "undefined" && document.activeElement === frame;
+    } catch {}
+    if (alreadyFocused) return;
+    focusFrame(frame);
+    left -= 1;
+    if (left > 0) scheduleFocus(attempt, delayMs);
+  };
+  attempt();
 }

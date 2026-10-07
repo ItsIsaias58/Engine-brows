@@ -7,6 +7,13 @@ export const loadAnimeCatalog = () =>
 export const loadMusicCatalog = () =>
   import("../components/music/MusicPanel.tsx");
 
+export const loadChatPanel = () =>
+  import("../components/chat/ChatPanel.tsx");
+
+export function preloadChatPanel() {
+  void loadChatPanel().catch(() => {});
+}
+
 export function preloadMusicCatalog() {
   void loadMusicCatalog().catch(() => {});
 }

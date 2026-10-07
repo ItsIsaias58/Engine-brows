@@ -13,7 +13,10 @@ const MAX_SITE_RECORD_BYTES = 1024 * 1024;
 const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
 // bases puramente locales: caches que se regeneran solas y no son datos del
 // usuario. la del CRX de uBlock pesa varios MB y no tiene sentido subirla.
-const LOCAL_ONLY_DATABASES = new Set(["lyra-rivet-cache"]);
+// "bolsa-history" es la cache local del historial de velas del juego de bolsa:
+// se vuelve a pedir al servidor, asi que no viaja en la instantanea (pesa varios
+// MB y solo inflaba cada subida).
+const LOCAL_ONLY_DATABASES = new Set(["lyra-rivet-cache", "bolsa-history"]);
 
 const LOCAL_ONLY_KEYS = new Set([
   "auth_user",
@@ -313,6 +316,16 @@ function containsCredentialText(value: string): boolean {
     /["'](?:access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|api[_-]?key|private[_-]?key|password|passwd|secret|authorization|credential|jwt)["']\s*[:=]/i.test(
       value,
     ) ||
+    // El servidor rechaza la instantanea ENTERA (400) si encuentra una de
+    // estas claves entre comillas DOBLES en cualquier parte del texto, sin
+    // exigir un `:` o `=` detras. El regex de arriba si lo exigia, asi que un
+    // valor como `{"fields":["password","secret"]}` pasaba el filtro del
+    // cliente y el servidor lo tumbaba con un 400. Se replica la regla del
+    // servidor tal cual (mismas claves, dobles comillas, subcadena) para que
+    // el cliente no mande nunca algo que el servidor va a rechazar.
+    /"(?:access[_-]?token|accesstoken|refresh[_-]?token|refreshtoken|auth[_-]?token|authtoken|session[_-]?token|sessiontoken|api[_-]?key|apikey|private[_-]?key|privatekey|password|passwd|secret|authorization|credential|jwt)"/i.test(
+      value,
+    ) ||
     /(?:^|[\s"'=:\[])(?:bearer|basic)\s+[a-zA-Z0-9+/_=-]{8,}/i.test(value) ||
     /(?:^|[^a-zA-Z0-9_])(?:gh[pousr]_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|xox[baprs]-\S{10,}|sk_(?:live|test)_[a-zA-Z0-9]{12,}|AKIA[A-Z0-9]{16})(?:$|[^a-zA-Z0-9_])/.test(
       value,
@@ -339,7 +352,7 @@ function containsSensitiveJson(
   return false;
 }
 
-function isSensitiveSyncText(
+export function isSensitiveSyncText(
   value: string,
   inspectJson = true,
 ): boolean {
@@ -1343,25 +1356,45 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-export async function exportSyncSnapshot(): Promise<SyncSnapshot> {
-  const factory = globalThis.indexedDB;
-  if (!factory) throw syncError("indexeddb is unavailable");
-  const [names, cookies] = await Promise.all([
-    databaseNames(factory),
-    exportBrowserCookies(),
-  ]);
-  const databases = await mapConcurrent(names, 4, async (name) => [
-    name,
-    await exportDatabase(factory, name),
-  ] as const);
-  const indexedDB = Object.fromEntries(databases);
+// parte que NO necesita el hilo principal para leer IndexedDB: storage + cookies.
+// se separa para que el worker pesado (IndexedDB + stringify) reciba sólo estos
+// datos pequeños desde el hilo principal.
+export async function exportNonIndexedDBParts(): Promise<
+  Pick<
+    SyncSnapshot,
+    "schemaVersion" | "localStorage" | "sessionStorage" | "cookies"
+  >
+> {
+  const cookies = await exportBrowserCookies();
   return {
     schemaVersion: SYNC_SCHEMA_VERSION,
     localStorage: exportStorage(globalThis.localStorage),
     sessionStorage: exportStorage(globalThis.sessionStorage),
     cookies,
-    indexedDB,
   };
+}
+
+// sólo IndexedDB: se puede ejecutar dentro de un Web Worker (no toca localStorage
+// ni cookies). Es la parte más cara (leer + codificar decenas de MB).
+export async function exportIndexedDBSnapshot(): Promise<
+  SyncSnapshot["indexedDB"]
+> {
+  const factory = globalThis.indexedDB;
+  if (!factory) throw syncError("indexeddb is unavailable");
+  const names = await databaseNames(factory);
+  const databases = await mapConcurrent(names, 4, async (name) => [
+    name,
+    await exportDatabase(factory, name),
+  ] as const);
+  return Object.fromEntries(databases);
+}
+
+export async function exportSyncSnapshot(): Promise<SyncSnapshot> {
+  const [parts, indexedDB] = await Promise.all([
+    exportNonIndexedDBParts(),
+    exportIndexedDBSnapshot(),
+  ]);
+  return { ...parts, indexedDB };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

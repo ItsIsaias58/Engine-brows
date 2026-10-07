@@ -6,6 +6,7 @@
   <title>CS:GO — OpenCase · owngames</title>
   <link rel="icon" href="cover.svg">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/owngames/shared/chat.css">
 </head>
 <body>
   <header class="topbar">
@@ -119,10 +120,18 @@
       window.addEventListener("pointerdown", unlock);
       window.addEventListener("keydown", unlock);
     })();
+    // cache local: el shell se guarda en el navegador para que el servidor deje
+    // de servir los mismos archivos en cada visita (igual que el juego de bolsa)
+    (function () {
+      if (!("serviceWorker" in navigator)) return;
+      if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return;
+      try { navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(function () {}); } catch (e) {}
+    })();
   </script>
   <script src="util.js"></script>
 <script src="weapons.js"></script>
   <script src="effects.js"></script>
   <script src="app.js"></script>
+  <script src="/owngames/shared/chat.js" defer></script>
 </body>
 </html>
