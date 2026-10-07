@@ -351,6 +351,54 @@ imposible para `gzip` (`services/cloudsync/src/sync.rs` acepta `gzip` e
 **Comprobaciones:** suite **461 pass / 0 fail**; `typecheck` exit 0; `lint` exit 0;
 ambos arneses ejecutados desde el repo.
 
+## 12. OpenCase: ruleta desincronizada y skin duplicada
+
+Dos bugs de comportamiento en `services/market/public/csgo-opencase/app.js`,
+reproducidos en Chromium real con `scripts/opencase-ui-check.mjs` (arnés nuevo;
+`NODE_PATH=<dir playwright-core> bun scripts/opencase-ui-check.mjs`, sale 1 si
+falla).
+
+**1) La cinta paraba en una tarjeta que no era el premio.**
+`startSpin()` asumía `STEP = 156px` (148 de tarjeta + 8 de gap) para centrar la
+casilla 42, pero `style.css` cambia `.rl-item` a **120px** en
+`@media (max-width: 640px)` — y un juego dentro de un panel/iframe casi nunca
+llega a 640px de ancho. Con 128px reales de paso, el destino se pasaba del tope
+de scroll y la cinta quedaba varada al final: el marcador apuntaba a un relleno
+al azar y la tarjeta de resultado mostraba otro item. Ahora la geometría se
+**mide** de las tarjetas ya pintadas (`winnerEl.offsetLeft − cards[0].offsetLeft
++ ancho/2 − anchoDeLaCinta/2`), y el tic de la cinta usa el paso real medido en
+vez de la constante (`smoothScrollTo`).
+
+**2) La misma skin entraba dos veces al inventario.** El server concede la skin
+en el `open` y **empuja** `skins-update` (server.mjs:1410) → el cliente adopta el
+inventario del server a los ~0.7 s, con la skin dentro, mientras la ruleta sigue
+girando. Al terminar, `commitReveal()` la añadía otra vez a la lista local: dos
+copias visibles y el total a vender duplicado. Ahora `commitReveal()` sólo la
+añade si su `id` no está ya presente.
+
+**3) Ventana de doble apertura.** `spinning` sólo se levanta dentro de
+`startSpin()` (al responder la red), así que entre el clic y la respuesta cabía
+un segundo `POST open`: dos cobros, dos skins y la ruleta reiniciada. Un flag
+`opening` síncrono cierra la ventana.
+
+| Escenario | antes | ahora |
+|---|---|---|
+| estrecho (480px): tarjeta centrada vs premio | **no coinciden** (Tec-9 en la cinta, M249 revelada; `is-winner` en otra) | coinciden |
+| escritorio (1280px) | coinciden | coinciden |
+| sesión real: inventario del cliente tras revelar | **2** (id repetido) con el server en 1 | 1, sin ids repetidos |
+
+Evidencia de mecanismo en el arnés: `idsDuringSpin` muestra el `sk-1` ya en el
+inventario **durante** el giro (el push se adelantó al revelado), y
+`inventoryCountAfterReveal` se queda en 1 — que es justo lo que la deduplicación
+impide que se convierta en 2.
+
+`sw.js` sube a `opencase-shell-v2`: sin eso el precache de 7 días seguiría
+sirviendo el `app.js` viejo.
+
+**Comprobaciones:** suite **461 pass / 0 fail**; `typecheck` exit 0; `lint` exit 0;
+`node --check` en `app.js` y `sw.js`; arnés en verde (y en rojo con el código
+anterior, que es lo que valida el arnés).
+
 No tocado a propósito: el poll de 1 s de opencase
 (`csgo-opencase/app.js:1277-1294`). Es la red de seguridad que reconcilia el
 monedero y `tradesBook` si el push se pierde; cuesta 1 petición/s de ~350 B,

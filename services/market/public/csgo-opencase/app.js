@@ -428,13 +428,20 @@
   // el primer segundo": el inventario se pintaba antes de que acabara el giro.
   let pendingReveal = null;
 
+  // `spinning` sólo se levanta dentro de startSpin, así que entre el clic y la
+  // respuesta del server (decenas de ms) había ventana para un segundo POST: se
+  // abrían DOS cajas (dos cobros, dos skins) y la segunda reiniciaba la ruleta.
+  // `opening` tapa esa ventana.
+  let opening = false;
+
   function openCase(id) {
-    if (spinning) return;
+    if (spinning || opening) return;
     const c = (catalog.cases || {})[id];
     if (!c) return;
     if (!canAfford(c)) { playSfx("lose", 0.3); toast("No tienes cash suficiente — retira del banco 🏦", "down"); return; }
     $("resultCard").classList.add("is-hidden");
     if (signedIn()) {
+      opening = true;
       api("/skins", { method: "POST", body: { action: "open", caseId: id } })
         .then((r) => {
           // pagar SÍ se refleja al instante (el costo ya se conoce); el premio
@@ -443,7 +450,8 @@
           pendingReveal = { case: c, item: r.item };
           startSpin(c, r.item);
         })
-        .catch((e) => toast("No se pudo abrir: " + e.message, "down"));
+        .catch((e) => toast("No se pudo abrir: " + e.message, "down"))
+        .finally(() => { opening = false; });
     } else {
       const item = rollLocal(c);
       // el invitado paga al abrir, pero el loot se suma recién al revelar
@@ -459,7 +467,14 @@
     const p = pendingReveal;
     pendingReveal = null;
     if (!p || !p.item) return;
-    inventory.push(p.item);
+    // el server concede la skin en el `open` y su push (`skins-update` →
+    // refreshServer/scheduleLiveRefresh) la mete en el inventario local ANTES de
+    // que la ruleta pare. Sin esta guarda el commit del revelado la añadía otra
+    // vez: la misma skin salía duplicada (dos copias, y el total a vender doble).
+    const alreadyGranted = p.item.id
+      ? inventory.some((it) => it && it.id === p.item.id)
+      : false;
+    if (!alreadyGranted) inventory.push(p.item);
     stats.opened += 1;
     stats.spent += p.case.cost;
     if (!signedIn()) saveLocal();
@@ -481,11 +496,23 @@
     if (backBtn) backBtn.disabled = true; // no hay vuelta atrás a mitad de giro
     renderWallet();
 
-    const STEP = 156; // 148px de tarjeta + 8px de gap (style.css)
+    const STEP = 156; // respaldo: 148px de tarjeta + 8px de gap (style.css)
     const WINNER = 42;
     const dur = 5200 + Math.random() * 900;
     const reelW = reel.clientWidth || wrap.clientWidth || 700;
-    const target = Math.max(0, WINNER * STEP + 74 - reelW / 2);
+    // la geometría se MIDE de las tarjetas ya pintadas, no se asume: con
+    // `@media (max-width: 640px)` (style.css) `.rl-item` pasa a 120px, así que la
+    // constante de 156 dejaba el centro del marcador sobre OTRA tarjeta. La
+    // ruleta paraba en un relleno y la tarjeta de resultado mostraba otro item:
+    // esa era la desincronización (arriba un sniper, abajo la pistola real).
+    const cards = reel.querySelectorAll(".rl-item");
+    const winnerEl = cards[WINNER];
+    const target = winnerEl
+      ? Math.max(
+          0,
+          winnerEl.offsetLeft - cards[0].offsetLeft + winnerEl.offsetWidth / 2 - reelW / 2,
+        )
+      : Math.max(0, WINNER * STEP + 74 - reelW / 2);
 
     requestAnimationFrame(() => {
       reel.scrollLeft = 0;
@@ -726,6 +753,13 @@
     const t0 = performance.now();
     let done = false;
     let lastIdx = -1;
+    // paso real entre tarjetas (mismo motivo que en startSpin: en pantallas
+    // estrechas no son 156px). Así el tic suena al cruzar cada tarjeta de verdad
+    // en vez de a saltos de una constante que ya no aplica.
+    const cardsForStep = reel ? reel.querySelectorAll(".rl-item") : null;
+    const step = cardsForStep && cardsForStep.length > 1
+      ? (cardsForStep[1].offsetLeft - cardsForStep[0].offsetLeft) || 156
+      : 156;
     const finish = () => { if (!done) { done = true; cb(); } };
     // si el rAF se corta (pestaña de fondo, error), un seguro libera el giro
     const failsafe = setTimeout(finish, dur + 2500);
@@ -738,7 +772,7 @@
       // tic por cruce de tarjeta: el sonido nace del movimiento REAL de la
       // cinta, no de un horario estimado — nunca se desincroniza
       if (typeof onStep === "function") {
-        const idx = Math.floor((reel.scrollLeft + (reel.clientWidth || 700) / 2) / 156);
+        const idx = Math.floor((reel.scrollLeft + (reel.clientWidth || 700) / 2) / step);
         if (idx !== lastIdx) { lastIdx = idx; try { onStep(idx, 1 - p); } catch {} }
       }
       if (p < 1) requestAnimationFrame(frame);
