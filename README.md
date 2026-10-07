@@ -102,6 +102,58 @@ version antes de continuar:
 bun --version   # 1.4.2 o superior
 ```
 
+## rendimiento
+
+Cifras medidas en la laptop de referencia (**Core i5-1235U**, 10 nucleos / 12
+hilos, 7 639 MB de RAM). Detalle completo, metodo y limitaciones en
+[`PERF-CAPACITY.md`](./PERF-CAPACITY.md).
+
+**CPU del servidor de juego segun jugadores conectados** (el cuello no es la
+CPU: el coste del `tick` es fijo y el broadcast por socket es minimo).
+
+```mermaid
+xychart-beta
+    title "CPU del market (% de un nucleo) vs jugadores"
+    x-axis "clientes simultaneos" [1, 25, 50, 100, 200, 500, 1000, 2000, 4000]
+    y-axis "CPU (% de un nucleo)" 0 --> 7
+    line [0.75, 1.17, 0.83, 0.92, 1.17, 2.25, 2.5, 2.67, 5.92]
+```
+
+**Jugadores simultaneos que aguanta, segun la subida de red** (cada jugador
+recibe ~4.94 KB/s constantes; este es el limite real, no la maquina).
+
+```mermaid
+xychart-beta
+    title "Jugadores simultaneos segun ancho de banda de subida"
+    x-axis "subida" ["5 Mbps", "10 Mbps", "20 Mbps", "50 Mbps", "100 Mbps"]
+    y-axis "jugadores" 0 --> 2700
+    bar [126, 253, 506, 1265, 2530]
+```
+
+**Peso en disco para ejecutar** (~365 MB; los 11.2 GB extra son artefactos de
+compilacion Rust que se pueden borrar).
+
+```mermaid
+pie showData
+    title "Peso en disco para ejecutar (MB)"
+    "node_modules" : 293
+    "services (sin target)" : 27
+    "dist (cliente compilado)" : 20
+    "binarios Rust release" : 19
+    "public" : 5.8
+```
+
+| Recurso | En reposo | Bajo carga |
+|---|---|---|
+| RAM (stack productivo) | ~75-100 MB | **~55 MB plana** hasta 4 000 jugadores (~4 KB por conexion) |
+| CPU (un nucleo) | ~1.2 % | **5.92 %** con 4 000 jugadores |
+| Disco (ejecucion) | — | ~365 MB |
+| Egress por jugador | — | 4.94 KB/s |
+| Pestañas de prueba en esta laptop | — | ~8-10 a la vez |
+
+En resumen: esta maquina sirve **cientos de jugadores** (el techo lo marca la
+subida: ~250 con 10 Mbps) y **no** la CPU ni la RAM.
+
 ## diferencias con lyra base
 
 Comparacion con el proyecto original [`gayq/lyra`](https://github.com/gayq/lyra)
